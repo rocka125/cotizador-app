@@ -3,12 +3,21 @@
 "use client";
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useReactToPrint } from "react-to-print";
 import { createClient } from "@/lib/supabase/client";
-import type { PriceItem, LineItem, Condiciones, EmpresaInfo, FirmaInfo } from "@/lib/quotes/types";
+import type { PriceItem, LineItem, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "@/lib/quotes/types";
 import { computeTotals, parseMoneyInput as parseMXN, formatMXN } from "@/lib/quotes/totals";
+import type { QuoteFormState, QuoteSavePayload } from "@/lib/quotes/serialize";
+import { EmailModal } from "@/components/quotes/EmailModal";
 
 export type { PriceItem };
+
+const MONEDA_LABELS: Record<MonedaCode, string> = {
+  USD: "USD (Dólares americanos)",
+  MXN: "MXN (Pesos mexicanos)",
+  EUR: "EUR (Euros)",
+};
 
 // ─── Hook: carga precios desde Supabase ───────────────────────────────────────
 function usePriceList() {
@@ -19,14 +28,16 @@ function usePriceList() {
   useEffect(() => {
     const supabase = createClient();
     supabase
-      .from("price_list")
-      .select("sheet, sku, desc, price")
-      .order("sheet")
+      .from("active_price_list")
+      .select("categoria, sku, descripcion, precio")
+      .order("categoria")
       .then(({ data, error }) => {
         if (error) {
           setError(error.message);
         } else if (data) {
-          setPrices(data as PriceItem[]);
+          setPrices(
+            data.map((d) => ({ sheet: d.categoria, sku: d.sku, desc: d.descripcion, price: Number(d.precio) }))
+          );
         }
         setLoading(false);
       });
@@ -304,10 +315,10 @@ function PriceListPanel({
             <div style={{ marginTop: 6, color: "#9ca3af" }}>
               Ve a{" "}
               <a
-                href="/admin/precios"
+                href="/precios"
                 style={{ color: "#D95A00", textDecoration: "underline" }}
               >
-                /admin/precios
+                /precios
               </a>{" "}
               para subir la lista.
             </div>
@@ -326,7 +337,7 @@ function PriceListPanel({
           >
             <div style={{ marginBottom: 8 }}>Lista vacía</div>
             <a
-              href="/admin/precios"
+              href="/precios"
               style={{
                 color: "#D95A00",
                 fontWeight: 600,
@@ -447,7 +458,7 @@ function PriceListPanel({
       >
         <span>Fortinet Americas Price List · USD</span>
         <a
-          href="/admin/precios"
+          href="/precios"
           style={{
             color: "#D95A00",
             fontSize: 10,
@@ -463,31 +474,141 @@ function PriceListPanel({
   );
 }
 
+// ─── Success modal ────────────────────────────────────────────────────────────
+function SuccessModal({
+  numeroCotizacion,
+  pdfHref,
+  onClose,
+  onGoToList,
+}: {
+  numeroCotizacion: string;
+  pdfHref?: string;
+  onClose: () => void;
+  onGoToList: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm print:hidden">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
+        <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#16a34a" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-gray-900 mb-1">Cotización guardada</h3>
+        <p className="text-sm text-gray-500 mb-6">{numeroCotizacion} se guardó correctamente.</p>
+        <div className="flex flex-col gap-2">
+          {pdfHref && (
+            <a
+              href={pdfHref}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors"
+            >
+              Exportar PDF ahora
+            </a>
+          )}
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-lg bg-[#D95A00] hover:bg-[#b84d00] text-white text-sm font-semibold transition-colors"
+          >
+            Seguir editando
+          </button>
+          <button
+            onClick={onGoToList}
+            className="w-full py-2.5 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+          >
+            Ir a lista de cotizaciones
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin panel ──────────────────────────────────────────────────────────────
+function AdminPanel({
+  estado,
+  setEstado,
+  mensaje,
+  setMensaje,
+}: {
+  estado: EstadoCotizacion;
+  setEstado: (e: EstadoCotizacion) => void;
+  mensaje: string;
+  setMensaje: (m: string) => void;
+}) {
+  return (
+    <div className="print:hidden fixed top-4 left-4 z-50 bg-white border border-gray-300 rounded-xl shadow-lg p-4 w-72">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Panel de administrador</p>
+      <label className="block text-xs text-gray-600 mb-1">Estado</label>
+      <select
+        value={estado}
+        onChange={(e) => setEstado(e.target.value as EstadoCotizacion)}
+        className="w-full mb-3 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900"
+      >
+        <option value="pendiente">Pendiente</option>
+        <option value="aprobada">Aprobada</option>
+        <option value="rechazada">Rechazada</option>
+      </select>
+      <label className="block text-xs text-gray-600 mb-1">Mensaje para el dueño (opcional)</label>
+      <textarea
+        value={mensaje}
+        onChange={(e) => setMensaje(e.target.value)}
+        rows={2}
+        placeholder="Ej. Ajusta el descuento antes de enviarla…"
+        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-gray-900 resize-none"
+      />
+    </div>
+  );
+}
+
+export interface CotizacionFormProps {
+  mode?: "nueva" | "editar" | "ver";
+  quoteId?: string;
+  numeroCotizacion?: string;
+  ownerId?: string;
+  currentUserId?: string;
+  isAdmin?: boolean;
+  initial?: QuoteFormState;
+  initialEstado?: EstadoCotizacion;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function CotizacionForm() {
-  const [showPriceList, setShowPriceList] = useState(true);
+export default function CotizacionForm({
+  mode = "nueva",
+  quoteId,
+  numeroCotizacion,
+  ownerId,
+  currentUserId,
+  isAdmin = false,
+  initial,
+  initialEstado = "pendiente",
+}: CotizacionFormProps) {
+  const router = useRouter();
+  const readOnly = mode === "ver";
+  const isForeignQuote = !!ownerId && !!currentUserId && ownerId !== currentUserId;
+
+  const [showPriceList, setShowPriceList] = useState(!readOnly);
 
   // ── Precios desde Supabase ──
   const { prices, loading: pricesLoading, error: pricesError } = usePriceList();
 
   // ── Datos de la empresa ──
-  const [empresa, setEmpresa] = useState<EmpresaInfo>({
-    nombre: "Fortress8 Cibersecurity Services SA de CV",
-    rfc: "FCS180507LBA",
-    direccion: "Cerrada Montejo #190, El Cedro, Nacajuca, Tabasco. Cp. 86220",
-    web: "www.fortress8.com",
-    email: "contacto@fortress8.com",
-    telOficina: "9933179494",
-    telMovil: "9934581129",
-  });
+  const [empresa, setEmpresa] = useState<EmpresaInfo>(
+    initial?.empresa ?? {
+      nombre: "Fortress8 Cibersecurity Services SA de CV",
+      rfc: "FCS180507LBA",
+      direccion: "Cerrada Montejo #190, El Cedro, Nacajuca, Tabasco. Cp. 86220",
+      web: "www.fortress8.com",
+      email: "contacto@fortress8.com",
+      telOficina: "9933179494",
+      telMovil: "9934581129",
+    }
+  );
   const setEmp = (k: keyof EmpresaInfo) => (v: string) =>
     setEmpresa((p) => ({ ...p, [k]: v }));
 
   // ── Número de cotización ──
-  const [cotNum] = useState(() => {
-    const y = new Date().getFullYear();
-    return `COT-${y}`;
-  });
   const [cotDate] = useState(() =>
     new Date().toLocaleDateString("es-MX", {
       day: "2-digit",
@@ -495,29 +616,58 @@ export default function CotizacionForm() {
       year: "numeric",
     })
   );
+  const cotNum = numeroCotizacion ?? `COT-${new Date().getFullYear()}-(nuevo)`;
 
-  const [vigenciaDias, setVigenciaDias] = useState("30");
-  const [moneda, setMoneda] = useState("USD (Dólares americanos)");
-  const [atencion, setAtencion] = useState("");
-  const [clientePuesto, setClientePuesto] = useState("");
-  const [clienteEmpresa, setClienteEmpresa] = useState("");
+  const [vigenciaDias, setVigenciaDias] = useState(initial?.vigenciaDias ?? "30");
+  const [monedaCode, setMonedaCode] = useState<MonedaCode>(initial?.monedaCode ?? "USD");
+  const [tipoCambio, setTipoCambio] = useState(initial?.tipoCambio ?? "1.0000");
+  const [atencion, setAtencion] = useState(initial?.atencion ?? "");
+  const [clientePuesto, setClientePuesto] = useState(initial?.clientePuesto ?? "");
+  const [clienteEmpresa, setClienteEmpresa] = useState(initial?.clienteEmpresa ?? "");
 
   // ── Líneas de cotización ──
-  const [items, setItems] = useState<LineItem[]>([
-    {
-      id: 1,
-      cant: "",
-      sku: "",
-      unidad: "PZA",
-      descripcion: "",
-      precioUnitario: "",
-      descuento: "",
-    },
-  ]);
+  const [items, setItems] = useState<LineItem[]>(
+    initial?.items ?? [
+      {
+        id: 1,
+        cant: "",
+        sku: "",
+        unidad: "PZA",
+        descripcion: "",
+        precioUnitario: "",
+        descuento: "",
+      },
+    ]
+  );
 
   // ── Imágenes ──
-  const [selloImg, setSelloImg] = useState<string | null>(null);
-  const [firmaImg, setFirmaImg] = useState<string | null>(null);
+  const [selloImg, setSelloImg] = useState<string | null>(initial?.selloImg ?? null);
+  const [firmaImg, setFirmaImg] = useState<string | null>(initial?.firmaImg ?? null);
+
+  // ── Guardado ──
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedNumero, setSavedNumero] = useState<string | null>(null);
+  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [estado, setEstado] = useState<EstadoCotizacion>(initialEstado);
+  const [mensajeAdmin, setMensajeAdmin] = useState("");
+
+  // Currency change -> fetch a live rate for non-USD (editable afterward).
+  useEffect(() => {
+    if (monedaCode === "USD") {
+      setTipoCambio("1.0000");
+      return;
+    }
+    fetch("/api/exchange-rate")
+      .then((r) => r.json())
+      .then((rates) => {
+        const rate = rates[monedaCode];
+        if (rate) setTipoCambio(String(rate));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monedaCode]);
 
   const handleSelloUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -535,22 +685,26 @@ export default function CotizacionForm() {
   };
 
   // ── Condiciones y firma ──
-  const [cond, setCond] = useState<Condiciones>({
-    tiempoEntrega: "",
-    vigenciaServicios: "",
-    condicionesPago: "",
-    lugarEntrega: "",
-  });
-  const [firma, setFirma] = useState<FirmaInfo>({
-    nombre: "Manuel Ble Vazquez",
-    puesto: "Gerencia Comercial",
-    tel: "9932619380",
-  });
+  const [cond, setCond] = useState<Condiciones>(
+    initial?.condiciones ?? {
+      tiempoEntrega: "",
+      vigenciaServicios: "",
+      condicionesPago: "",
+      lugarEntrega: "",
+    }
+  );
+  const [firma, setFirma] = useState<FirmaInfo>(
+    initial?.firma ?? {
+      nombre: "Manuel Ble Vazquez",
+      puesto: "Gerencia Comercial",
+      tel: "9932619380",
+    }
+  );
   const setFirmaField = (k: keyof FirmaInfo) => (v: string) =>
     setFirma((p) => ({ ...p, [k]: v }));
 
-  const [ivaActivo, setIvaActivo] = useState(false);
-  const [ivaPercent, setIvaPercent] = useState("16");
+  const [ivaActivo, setIvaActivo] = useState(initial?.ivaActivo ?? false);
+  const [ivaPercent, setIvaPercent] = useState(initial?.ivaPercent ?? "16");
 
   // ── Agregar desde lista de precios ──
   const handleAddFromList = useCallback(
@@ -592,6 +746,53 @@ export default function CotizacionForm() {
 
   // ── Cálculos ──
   const { rows, subtotalGlobal, ivaPct, iva, total } = computeTotals(items, ivaActivo, ivaPercent);
+
+  // ── Guardar (crear o editar) ──
+  async function handleSave() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const payload: QuoteSavePayload = {
+        atencion,
+        clientePuesto,
+        clienteEmpresa,
+        empresa,
+        vigenciaDias,
+        monedaCode,
+        tipoCambio,
+        condiciones: cond,
+        firma,
+        firmaImg,
+        selloImg,
+        items,
+        ivaActivo,
+        ivaPercent,
+        ...(isAdmin && isForeignQuote ? { estado, mensajeAdmin } : {}),
+      };
+
+      const res = await fetch(mode === "editar" && quoteId ? `/api/quotes/${quoteId}` : "/api/quotes", {
+        method: mode === "editar" && quoteId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setSaveError(body.error ?? "Error al guardar la cotización");
+        return;
+      }
+      setSavedNumero(body.numero_cotizacion ?? numeroCotizacion ?? "");
+      setSavedQuoteId(body.id ?? quoteId ?? null);
+      if (mode === "nueva" && body.id) {
+        router.replace(`/cotizaciones/${body.id}`);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setSaveError("Error de conexión al guardar");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const updateItem = useCallback(
     (id: number, field: keyof LineItem, value: string) =>
@@ -656,30 +857,77 @@ export default function CotizacionForm() {
 
   return (
     <div className="bg-gray-300 min-h-screen flex flex-col">
+      {isAdmin && isForeignQuote && !readOnly && (
+        <AdminPanel estado={estado} setEstado={setEstado} mensaje={mensajeAdmin} setMensaje={setMensajeAdmin} />
+      )}
+      {savedNumero && (
+        <SuccessModal
+          numeroCotizacion={savedNumero}
+          pdfHref={savedQuoteId ? `/api/quotes/${savedQuoteId}/pdf` : undefined}
+          onClose={() => setSavedNumero(null)}
+          onGoToList={() => router.push("/cotizaciones")}
+        />
+      )}
+
       {/* ── Toolbar ── */}
       <div className="print:hidden fixed top-4 right-4 z-50 flex gap-2">
-        <button
-          onClick={() => setShowPriceList((v) => !v)}
-          className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-full shadow-md transition-colors flex items-center gap-2"
-        >
-          <svg
-            width="15"
-            height="15"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+        {readOnly ? (
+          <>
+            <button
+              onClick={() => router.push("/cotizaciones")}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-full shadow-md transition-colors"
+            >
+              ← Volver
+            </button>
+            {(isAdmin || !isForeignQuote) && quoteId && (
+              <button
+                onClick={() => router.push(`/cotizaciones/${quoteId}`)}
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-full shadow-md transition-colors"
+              >
+                Editar
+              </button>
+            )}
+          </>
+        ) : (
+          <button
+            onClick={() => setShowPriceList((v) => !v)}
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-full shadow-md transition-colors flex items-center gap-2"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-            />
-          </svg>
-          {showPriceList ? "Ocultar lista" : "Lista de precios"}
-        </button>
+            <svg
+              width="15"
+              height="15"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
+            </svg>
+            {showPriceList ? "Ocultar lista" : "Lista de precios"}
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg transition-colors flex items-center gap-2"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        )}
         <button
-          onClick={() => handlePrint?.()}
+          onClick={() => {
+            // A saved quote gets the real vector PDF (server-rendered,
+            // selectable text, always matches what's persisted); an
+            // unsaved "nueva" quote has no id yet to fetch, so it falls
+            // back to the browser print dialog.
+            if (quoteId) window.open(`/api/quotes/${quoteId}/pdf`, "_blank");
+            else handlePrint?.();
+          }}
           className="bg-[#D95A00] hover:bg-[#b84d00] text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg transition-colors flex items-center gap-2"
         >
           <svg
@@ -698,18 +946,47 @@ export default function CotizacionForm() {
           </svg>
           Exportar PDF
         </button>
+        {quoteId && (
+          <button
+            onClick={() => setShowEmailModal(true)}
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-full shadow-md transition-colors flex items-center gap-2"
+          >
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            Correo
+          </button>
+        )}
       </div>
 
+      {quoteId && showEmailModal && (
+        <EmailModal quoteId={quoteId} onClose={() => setShowEmailModal(false)} />
+      )}
+
+      {saveError && (
+        <div className="print:hidden fixed top-20 right-4 z-50 bg-red-50 border border-red-300 text-red-700 text-sm px-4 py-2 rounded-lg shadow-lg max-w-xs">
+          {saveError}
+        </div>
+      )}
+
+      {isForeignQuote && (
+        <div className="print:hidden fixed top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg z-50">
+          {readOnly ? "Viendo" : "Editando"} la cotización de otro usuario
+        </div>
+      )}
+
       {/* ── Hint ── */}
-      <div className="print:hidden fixed top-4 left-1/2 -translate-x-1/2 bg-[#D95A00] text-white text-xs font-medium px-4 py-1.5 rounded-full shadow-lg z-50 opacity-80 pointer-events-none select-none">
-        ✏️ Haz clic en cualquier texto para editarlo · Busca productos en el
-        panel izquierdo
-      </div>
+      {!readOnly && !isForeignQuote && (
+        <div className="print:hidden fixed top-4 left-1/2 -translate-x-1/2 bg-[#D95A00] text-white text-xs font-medium px-4 py-1.5 rounded-full shadow-lg z-50 opacity-80 pointer-events-none select-none">
+          ✏️ Haz clic en cualquier texto para editarlo · Busca productos en el
+          panel izquierdo
+        </div>
+      )}
 
       {/* ── Layout principal ── */}
       <div className="flex flex-1 pt-14 pb-10 gap-0 justify-center print:pt-0 print:block">
         {/* Panel de lista de precios */}
-        {showPriceList && (
+        {showPriceList && !readOnly && (
           <div
             className="print:hidden sticky top-14 self-start"
             style={{ height: "calc(100vh - 56px)", width: 300, flexShrink: 0 }}
@@ -735,6 +1012,7 @@ export default function CotizacionForm() {
               fontFamily: "'Segoe UI', Arial, sans-serif",
               display: "flex",
               flexDirection: "column",
+              pointerEvents: readOnly ? "none" : undefined,
             }}
           >
             {/* ── Encabezado ── */}
@@ -1001,19 +1279,21 @@ export default function CotizacionForm() {
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="print:hidden">
-                      <td
-                        colSpan={10}
-                        className="border border-gray-300 py-1 text-center"
-                      >
-                        <button
-                          onClick={addRow}
-                          className="text-[#D95A00] hover:text-[#b84d00] text-xs font-semibold tracking-wide uppercase transition-colors"
+                    {!readOnly && (
+                      <tr className="print:hidden">
+                        <td
+                          colSpan={10}
+                          className="border border-gray-300 py-1 text-center"
                         >
-                          + Agregar fila manual
-                        </button>
-                      </td>
-                    </tr>
+                          <button
+                            onClick={addRow}
+                            className="text-[#D95A00] hover:text-[#b84d00] text-xs font-semibold tracking-wide uppercase transition-colors"
+                          >
+                            + Agregar fila manual
+                          </button>
+                        </td>
+                      </tr>
+                    )}
                     <tr>
                       <td
                         colSpan={6}
@@ -1034,7 +1314,7 @@ export default function CotizacionForm() {
                       </td>
                       <td className="border-0 print:hidden" />
                     </tr>
-                    {!ivaActivo && (
+                    {!ivaActivo && !readOnly && (
                       <tr className="print:hidden">
                         <td colSpan={8} className="border-0" />
                         <td
@@ -1112,14 +1392,33 @@ export default function CotizacionForm() {
                   />
                   <span className="font-bold">días Naturales</span>
                 </div>
-                <div className="flex items-center gap-1 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap print:hidden">
                   <span>Precios expresados en</span>
-                  <Editable
-                    value={moneda}
-                    onChange={setMoneda}
-                    placeholder="USD (Dólares americanos)"
-                    className="w-52 text-xs"
-                  />
+                  <select
+                    value={monedaCode}
+                    onChange={(e) => setMonedaCode(e.target.value as MonedaCode)}
+                    className="border-b border-gray-300 bg-transparent text-xs font-bold text-gray-900 focus:outline-none focus:border-[#D95A00]"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="MXN">MXN</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                  {monedaCode !== "USD" && (
+                    <span className="flex items-center gap-1">
+                      · Tipo de cambio
+                      <Editable
+                        value={tipoCambio}
+                        onChange={setTipoCambio}
+                        placeholder="1.0000"
+                        className="w-16 text-center text-xs"
+                        bold
+                      />
+                    </span>
+                  )}
+                </div>
+                <div className="hidden print:block">
+                  Precios expresados en {MONEDA_LABELS[monedaCode]}
+                  {monedaCode !== "USD" ? ` · Tipo de cambio ${tipoCambio}` : ""}
                 </div>
               </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { IconUser } from "@tabler/icons-react";
+import { NotificationBell } from "./NotificationBell";
 
 export function Topbar({
   title,
@@ -24,10 +25,8 @@ export function Topbar({
     >
       <h1 className="text-sm font-semibold text-white tracking-wide">{title}</h1>
 
-      {/* Exchange-rate pill and notification bell are wired in later phases
-          (dashboard/exchange-rate Phase 1, notifications Phase 5) — this
-          slot intentionally stays minimal until then. */}
       <div className="flex items-center gap-3">
+        <NotificationBell />
         <div
           className="flex items-center justify-center rounded-full text-xs font-semibold text-white"
           style={{

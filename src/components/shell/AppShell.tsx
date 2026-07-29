@@ -11,6 +11,7 @@ const PAGE_TITLES: Record<string, string> = {
   cotizaciones: "Cotizaciones",
   seguimiento: "Seguimiento",
   precios: "Lista de precios",
+  "precios/comparar": "Comparar listas",
   auditoria: "Auditoría",
 };
 
@@ -21,11 +22,13 @@ function initialsFrom(nombre: string | null, email: string) {
 
 export function AppShell({
   role,
+  userId,
   userEmail,
   userName,
   children,
 }: {
   role: "admin" | "vendedor";
+  userId: string;
   userEmail: string;
   userName: string | null;
   children: React.ReactNode;
@@ -33,11 +36,18 @@ export function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const theme = themeForPathname(pathname);
-  const segment = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
-  const title = PAGE_TITLES[segment] ?? "Fortress8";
+  const segments = pathname.split("/").filter(Boolean);
+  const twoSegmentKey = segments.slice(0, 2).join("/");
+  const title = PAGE_TITLES[twoSegmentKey] ?? PAGE_TITLES[segments[0] ?? "dashboard"] ?? "Fortress8";
 
   async function handleLogout() {
     const supabase = createClient();
+    await supabase.from("audit_log").insert({
+      tipo: "sesion",
+      usuario_id: userId,
+      usuario_nombre: userName ?? userEmail,
+      accion: "logout",
+    });
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();

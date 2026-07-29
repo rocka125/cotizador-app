@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <AppShell role={profile.role} userEmail={profile.email} userName={profile.nombre}>
+    <AppShell role={profile.role} userId={profile.id} userEmail={profile.email} userName={profile.nombre}>
       {children}
     </AppShell>
   );

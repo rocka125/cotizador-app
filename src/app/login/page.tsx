@@ -40,7 +40,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(
@@ -50,6 +50,19 @@ export default function LoginPage() {
       );
       setLoading(false);
       return;
+    }
+
+    // Best-effort audit write — not a security control (the client could
+    // skip it), just an admin-visible trail. See the port plan's note on
+    // why this can't be purely server-authoritative like the PHP original.
+    if (data.user) {
+      const { data: profile } = await supabase.from("profiles").select("nombre").eq("id", data.user.id).single();
+      await supabase.from("audit_log").insert({
+        tipo: "sesion",
+        usuario_id: data.user.id,
+        usuario_nombre: profile?.nombre ?? data.user.email,
+        accion: "login",
+      });
     }
 
     router.push("/dashboard");
