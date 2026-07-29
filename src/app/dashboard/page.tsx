@@ -12,7 +12,7 @@ import { StatsCards } from "@/components/StatsCards";
 import { RecentQuotes } from "@/components/RecentQuotes";
 import { ClientsList } from "@/components/ClientsList";
 import { PriceListViewer } from "@/components/PriceListViewer";
-import CotizacionForm from "@/app/cotizaciones/page";
+import CotizacionForm from "@/components/quotes/CotizacionForm";
 
 type TabId = "dashboard" | "quotes" | "new-quote" | "price-list" | "clients";
 
