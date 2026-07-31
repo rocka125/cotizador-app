@@ -25,3 +25,85 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Dashboard "en vivo" indicator (DashboardClient.tsx hero stat). */
+@keyframes pulse-dot {
+  0% { box-shadow: 0 0 0 0 rgba(143, 227, 166, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(143, 227, 166, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(143, 227, 166, 0); }
+}
+.pulse-dot {
+  animation: pulse-dot 1.8s ease-out infinite;
+}
+
+/* "Vence hoy" badge in Próximas a vencer -- only the most urgent item pulses,
+   using currentColor so it works for either the red or amber badge tone
+   without a second color-specific keyframe. */
+@keyframes pulse-badge {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pulse-badge {
+  animation: pulse-badge 1.8s ease-out infinite;
+}
+
+/* Any list/grid row that should fade+slide in on mount -- used by the
+   dashboard's "Cotizaciones recientes" list and the /cotizaciones card
+   grid. Both remount their items under a stable key when a search/filter
+   changes what's visible, so this fires exactly when a row/card newly
+   enters view instead of on every keystroke for rows already on screen. */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.row-in {
+  animation: row-in 320ms cubic-bezier(.22, .9, .3, 1) both;
+}
+
+/* General modal/overlay entrance -- a calm fade+settle, not a bouncy pop.
+   Used both for destructive-action confirms (e.g. "¿Eliminar esta
+   cotización?", where a bounce would feel wrong for gating something
+   destructive) and for the email modal opening, where quiet is just as
+   appropriate for a form the user is about to fill in. */
+@keyframes overlay-in {
+  from { opacity: 0; transform: scale(.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.overlay-in {
+  animation: overlay-in 180ms cubic-bezier(.22, .9, .3, 1) both;
+}
+
+/* Confirmation moments that ARE worth celebrating a little (email sent,
+   quote deleted) -- a small overshoot instead of overlay-in's flat settle. */
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(.5); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.pop-in {
+  animation: pop-in 420ms cubic-bezier(.34, 1.56, .64, 1) both;
+}
+
+/* A card leaving the grid after its quote is deleted -- shrinks and fades
+   out (see DossierGrid.tsx's handleDelete) instead of just vanishing the
+   instant the server data refreshes. */
+@keyframes card-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.92); }
+}
+.card-out {
+  animation: card-out 320ms cubic-bezier(.4, 0, .2, 1) forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .pulse-badge,
+  .row-in,
+  .overlay-in,
+  .pop-in,
+  .card-out {
+    animation: none;
+  }
+}

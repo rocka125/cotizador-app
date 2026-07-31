@@ -49,6 +49,7 @@ export function DossierGrid({
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [emailModalId, setEmailModalId] = useState<string | null>(null);
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
   function updateParams(next: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -92,10 +93,18 @@ export function DossierGrid({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         alert(body.error ?? "Error al eliminar");
-      } else {
-        router.refresh();
+        setBusyId(null);
+        setConfirmDelete(null);
+        return;
       }
-    } finally {
+      // Play the exit animation before the data actually disappears --
+      // router.refresh() re-renders with this card gone from the list, so
+      // triggering it immediately would just vanish the card. Delaying it
+      // past card-out's duration lets the shrink+fade play out first.
+      setConfirmDelete(null);
+      setRemovingIds((prev) => new Set(prev).add(id));
+      setTimeout(() => router.refresh(), 320);
+    } catch {
       setBusyId(null);
       setConfirmDelete(null);
     }
@@ -149,7 +158,7 @@ export function DossierGrid({
         </div>
       ) : (
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 transition-opacity ${pending ? "opacity-50" : ""}`}>
-          {quotes.map((q) => {
+          {quotes.map((q, idx) => {
             const estadoInfo = ESTADO_LABEL[q.estado] ?? ESTADO_LABEL.pendiente;
             const owner = profilesById[q.usuario_id];
             const isOwner = q.usuario_id === currentUserId;
@@ -157,18 +166,24 @@ export function DossierGrid({
             const canDelete = isAdmin || (isOwner && q.estado === "pendiente");
             const busy = busyId === q.id;
 
+            const removing = removingIds.has(q.id);
+
             return (
               <div
                 key={q.id}
-                className="relative overflow-hidden rounded-2xl border p-5"
+                className={`${removing ? "card-out" : "row-in"} relative overflow-hidden rounded-2xl border p-5 transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30`}
                 style={{
                   background: "rgba(255,255,255,0.03)",
                   borderColor: "rgba(255,255,255,0.08)",
+                  // Capped so a full page of results doesn't take forever to
+                  // finish revealing -- past the 12th card they all arrive together.
+                  animationDelay: removing ? undefined : `${Math.min(idx, 11) * 30}ms`,
                 }}
               >
-                {/* Ribbon */}
+                {/* Ribbon -- transitions color instead of snapping when
+                    Aprobar/Rechazar changes q.estado on the same mounted card. */}
                 <div
-                  className="absolute top-0 right-0 px-3 py-1 text-[10px] font-bold tracking-wider text-white rounded-bl-lg"
+                  className="absolute top-0 right-0 px-3 py-1 text-[10px] font-bold tracking-wider text-white rounded-bl-lg transition-colors duration-500"
                   style={{ background: estadoInfo.color }}
                 >
                   {estadoInfo.label}
@@ -229,7 +244,7 @@ export function DossierGrid({
                 </div>
 
                 {confirmDelete === q.id && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 backdrop-blur-sm rounded-2xl p-4 text-center">
+                  <div className="overlay-in absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 backdrop-blur-sm rounded-2xl p-4 text-center">
                     <p className="text-sm text-white">¿Eliminar {q.numero_cotizacion}? Esta acción no se puede deshacer.</p>
                     <div className="flex gap-2">
                       <button

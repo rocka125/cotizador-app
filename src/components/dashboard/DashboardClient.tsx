@@ -47,6 +47,66 @@ function money(n: number) {
   return n.toLocaleString("es-MX", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+// Animates 0 -> target once on mount (eased, ~1.4s by default) for any
+// dashboard figure -- skips straight to the final value under
+// prefers-reduced-motion instead of forcing the count. `delay` staggers the
+// start (e.g. so three donuts count up one after another, not all at once).
+function useCountUp(target: number, duration = 1400, delay = 0) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setValue(target);
+      return;
+    }
+    let raf = 0;
+    let start: number | null = null;
+    function step(ts: number) {
+      if (start === null) start = ts;
+      const p = Math.min(1, (ts - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setValue(Math.round(target * eased));
+      if (p < 1) raf = requestAnimationFrame(step);
+    }
+    const t = setTimeout(() => {
+      raf = requestAnimationFrame(step);
+    }, delay);
+    return () => {
+      clearTimeout(t);
+      cancelAnimationFrame(raf);
+    };
+  }, [target, duration, delay]);
+  return value;
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+// Flips true `delayMs` after mount -- drives width/height "grow-in" bars
+// (HBar, ProductBar) via a CSS transition rather than a per-frame tween,
+// since the target is a single known value, not something to count through.
+function useMountedAfter(delayMs: number) {
+  const [mounted, setMounted] = useState(false);
+  const reduced = usePrefersReducedMotion();
+  useEffect(() => {
+    if (reduced) {
+      setMounted(true);
+      return;
+    }
+    const t = setTimeout(() => setMounted(true), delayMs);
+    return () => clearTimeout(t);
+  }, [delayMs, reduced]);
+  return mounted;
+}
+
 function initials(name: string) {
   const parts = name.trim().split(/\s+/);
   if (!parts[0]) return "—";
@@ -64,9 +124,12 @@ function Glass({ className, children, style }: { className?: string; children: R
   );
 }
 
-function Donut({ pct, color, label }: { pct: number; color: string; label: string }) {
+function Donut({ pct, color, label, delay = 0 }: { pct: number; color: string; label: string; delay?: number }) {
   const circ = 125.66; // 2πr, r=20
-  const fill = Math.round((pct / 100) * circ * 10) / 10;
+  // Counts up in lockstep with the ring fill (same tween drives both) so
+  // the % label and the arc always agree mid-animation, not just at rest.
+  const animatedPct = useCountUp(pct, 900, delay);
+  const fill = Math.round((animatedPct / 100) * circ * 10) / 10;
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width="46" height="46" viewBox="0 0 52 52">
@@ -83,13 +146,14 @@ function Donut({ pct, color, label }: { pct: number; color: string; label: strin
           transform="rotate(-90 26 26)"
         />
       </svg>
-      <div className="text-[13px] font-bold" style={{ color }}>{pct}%</div>
+      <div className="text-[13px] font-bold tabular-nums" style={{ color }}>{animatedPct}%</div>
       <div className="text-[9.5px] text-white/40 text-center">{label}</div>
     </div>
   );
 }
 
-function HBar({ icon, label, value, pct, color }: { icon: React.ReactNode; label: string; value: number; pct: number; color: string }) {
+function HBar({ icon, label, value, pct, color, delay = 0 }: { icon: React.ReactNode; label: string; value: number; pct: number; color: string; delay?: number }) {
+  const grown = useMountedAfter(delay);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
@@ -99,8 +163,25 @@ function HBar({ icon, label, value, pct, color }: { icon: React.ReactNode; label
         <span className="text-[13px] font-semibold" style={{ color }}>{value}</span>
       </div>
       <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-        <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${grown ? Math.min(pct, 100) : 0}%`, background: color, transition: "width 700ms cubic-bezier(.22,.9,.3,1)" }}
+        />
       </div>
+    </div>
+  );
+}
+
+function ProductBar({ label, count, total, widthPct, color, delay }: { label: string; count: number; total: number; widthPct: number; color: string; delay: number }) {
+  const grown = useMountedAfter(delay);
+  return (
+    <div
+      title={`${label}: ${count} uds · ${money(total)}`}
+      className="flex items-center justify-between px-3 h-7 rounded-lg text-[10.5px] font-semibold text-[#1a0d04]"
+      style={{ width: `${grown ? widthPct : 0}%`, background: color, transition: "width 650ms cubic-bezier(.22,.9,.3,1)" }}
+    >
+      <span className="truncate max-w-[70%]">{label}</span>
+      <span className="opacity-80 shrink-0">{count}</span>
     </div>
   );
 }
@@ -118,6 +199,8 @@ export function DashboardClient({
 }) {
   const [exchangeRate, setExchangeRate] = useState<{ MXN: number; EUR: number; live: boolean } | null>(null);
   const [search, setSearch] = useState("");
+  const animatedTotal = useCountUp(stats.totalAmountUsd);
+  const reducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     fetch("/api/exchange-rate")
@@ -128,6 +211,13 @@ export function DashboardClient({
 
   const conversionRate = stats.totalQuotes > 0 ? Math.round((stats.approvedCount / stats.totalQuotes) * 100) : 0;
   const totalMes = stats.monthlyVolume.at(-1)?.count ?? 0;
+
+  // KPI minis count up quickly (~600ms, no stagger) -- fast enough to read
+  // as "these numbers are alive" without making you wait to see them.
+  const animTotalQuotes = useCountUp(stats.totalQuotes, 600);
+  const animConversionRate = useCountUp(conversionRate, 600);
+  const animTotalMes = useCountUp(totalMes, 600);
+  const animUrgentes = useCountUp(seguimiento.urgentes, 600);
 
   const evolutionData = {
     labels: stats.wave.labels,
@@ -206,9 +296,15 @@ export function DashboardClient({
             style={{ right: -40, top: -40, width: 180, height: 180, border: "1px solid rgba(255,138,61,.22)" }}
           />
           <div>
-            <p className="text-[11px] tracking-widest uppercase text-white/40">Total cotizado</p>
-            <p className="font-serif text-5xl font-semibold my-3" style={{ background: "linear-gradient(135deg, var(--shell-accent2), var(--shell-accent))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
-              {money(stats.totalAmountUsd)}
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] tracking-widest uppercase text-white/40">Total cotizado</p>
+              <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase text-[#8FE3A6]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#8FE3A6] pulse-dot" />
+                En vivo
+              </span>
+            </div>
+            <p className="font-serif text-5xl font-semibold my-3 tabular-nums" style={{ background: "linear-gradient(135deg, var(--shell-accent2), var(--shell-accent))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
+              {money(animatedTotal)}
             </p>
           </div>
           <div className="flex items-center justify-between text-xs text-white/50 flex-wrap gap-2">
@@ -231,6 +327,21 @@ export function DashboardClient({
                 maintainAspectRatio: false,
                 interaction: { mode: "index", intersect: false },
                 plugins: { legend: { display: false } },
+                // "Revelado al cargar": each series (Pendientes/Aprobadas/
+                // Rechazadas) draws in ~150ms after the previous one, with a
+                // slight per-point stagger within a series -- a cascading
+                // reveal instead of all three snapping in at once. Disabled
+                // outright under prefers-reduced-motion.
+                animation: reducedMotion
+                  ? false
+                  : {
+                      duration: 1000,
+                      easing: "easeOutCubic",
+                      delay: (ctx) =>
+                        ctx.type === "data" && ctx.mode === "default"
+                          ? ctx.datasetIndex * 150 + ctx.dataIndex * 6
+                          : 0,
+                    },
                 scales: {
                   x: { ticks: { color: "rgba(255,255,255,0.5)", maxTicksLimit: 10 }, grid: { display: false } },
                   y: { ticks: { color: "rgba(255,255,255,0.5)", stepSize: 1 }, grid: { color: "rgba(255,255,255,0.05)" }, beginAtZero: true },
@@ -244,28 +355,28 @@ export function DashboardClient({
             <span className="flex items-center gap-1.5"><i className="inline-block w-2 h-2 rounded-full" style={{ background: ESTADO_COLORS.rechazada }} />Rechazadas</span>
           </div>
           <div className="grid grid-cols-3 gap-2 pt-2 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-            <Donut pct={pctPend} color={ESTADO_COLORS.pendiente} label="Pendientes" />
-            <Donut pct={pctAprob} color={ESTADO_COLORS.aprobada} label="Aprobadas" />
-            <Donut pct={pctRech} color={ESTADO_COLORS.rechazada} label="Rechazadas" />
+            <Donut pct={pctPend} color={ESTADO_COLORS.pendiente} label="Pendientes" delay={0} />
+            <Donut pct={pctAprob} color={ESTADO_COLORS.aprobada} label="Aprobadas" delay={140} />
+            <Donut pct={pctRech} color={ESTADO_COLORS.rechazada} label="Rechazadas" delay={280} />
           </div>
         </Glass>
 
         {/* KPI minis */}
         <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
-          <p className="font-serif text-[27px] font-semibold" style={{ color: "var(--shell-accent)" }}>{stats.totalQuotes}</p>
+          <p className="font-serif text-[27px] font-semibold tabular-nums" style={{ color: "var(--shell-accent)" }}>{animTotalQuotes}</p>
           <p className="text-[11px] text-white/40 mt-1">Cotizaciones totales</p>
         </Glass>
         <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
-          <p className="font-serif text-[27px] font-semibold text-[#8FE3A6]">{conversionRate}%</p>
+          <p className="font-serif text-[27px] font-semibold text-[#8FE3A6] tabular-nums">{animConversionRate}%</p>
           <p className="text-[11px] text-white/40 mt-1">Tasa de aprobación</p>
         </Glass>
         <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
-          <p className="font-serif text-[27px] font-semibold text-[#FFC876]">{totalMes}</p>
+          <p className="font-serif text-[27px] font-semibold text-[#FFC876] tabular-nums">{animTotalMes}</p>
           <p className="text-[11px] text-white/40 mt-1">Nuevas este mes</p>
         </Glass>
         <Link href="/seguimiento" className="col-span-12 sm:col-span-6 md:col-span-3">
           <Glass className="h-full hover:border-white/20 transition-colors">
-            <p className="font-serif text-[27px] font-semibold text-[#FF7A6E]">{seguimiento.urgentes}</p>
+            <p className="font-serif text-[27px] font-semibold text-[#FF7A6E] tabular-nums">{animUrgentes}</p>
             <p className="text-[11px] text-white/40 mt-1">Sin respuesta +5 días</p>
           </Glass>
         </Link>
@@ -285,14 +396,15 @@ export function DashboardClient({
           />
           <div className="space-y-1 max-h-72 overflow-y-auto">
             {filteredQuotes.length === 0 && <p className="text-white/30 text-sm py-4 text-center">Sin cotizaciones.</p>}
-            {filteredQuotes.map((q) => {
+            {filteredQuotes.map((q, idx) => {
               const owner = profilesById[q.usuario_id];
               const nombre = q.cliente_empresa || q.numero_cotizacion;
               return (
                 <Link
                   key={q.id}
                   href={`/cotizaciones/${q.id}/ver`}
-                  className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                  className="row-in flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                  style={{ animationDelay: `${idx * 25}ms` }}
                 >
                   <div
                     className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
@@ -333,10 +445,10 @@ export function DashboardClient({
             )}
           </div>
           <div className="space-y-2.5">
-            <HBar icon={<IconMailCheck size={12} />} label="Enviados" value={seguimiento.enviadas} pct={seguimiento.activas ? (seguimiento.enviadas / seguimiento.activas) * 100 : 0} color="#5AA3FF" />
-            <HBar icon={<IconEye size={12} />} label={`Abiertos${seguimiento.tasaApertura ? ` (${seguimiento.tasaApertura}%)` : ""}`} value={seguimiento.abiertas} pct={seguimiento.activas ? (seguimiento.abiertas / seguimiento.activas) * 100 : 0} color="#8FE3A6" />
-            <HBar icon={<IconMessageCircle size={12} />} label="Con seguimiento" value={seguimiento.conSeguimiento} pct={seguimiento.activas ? (seguimiento.conSeguimiento / seguimiento.activas) * 100 : 0} color="var(--shell-accent)" />
-            <HBar icon={<IconClockExclamation size={12} />} label="Sin respuesta +5d" value={seguimiento.urgentes} pct={seguimiento.activas ? (seguimiento.urgentes / seguimiento.activas) * 100 : 0} color="#FF7A6E" />
+            <HBar icon={<IconMailCheck size={12} />} label="Enviados" value={seguimiento.enviadas} pct={seguimiento.activas ? (seguimiento.enviadas / seguimiento.activas) * 100 : 0} color="#5AA3FF" delay={0} />
+            <HBar icon={<IconEye size={12} />} label={`Abiertos${seguimiento.tasaApertura ? ` (${seguimiento.tasaApertura}%)` : ""}`} value={seguimiento.abiertas} pct={seguimiento.activas ? (seguimiento.abiertas / seguimiento.activas) * 100 : 0} color="#8FE3A6" delay={90} />
+            <HBar icon={<IconMessageCircle size={12} />} label="Con seguimiento" value={seguimiento.conSeguimiento} pct={seguimiento.activas ? (seguimiento.conSeguimiento / seguimiento.activas) * 100 : 0} color="var(--shell-accent)" delay={180} />
+            <HBar icon={<IconClockExclamation size={12} />} label="Sin respuesta +5d" value={seguimiento.urgentes} pct={seguimiento.activas ? (seguimiento.urgentes / seguimiento.activas) * 100 : 0} color="#FF7A6E" delay={270} />
           </div>
           <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t text-center" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
             <div>
@@ -434,15 +546,15 @@ export function DashboardClient({
           ) : (
             <div className="flex flex-col gap-1.5">
               {stats.topProductos.map((p, i) => (
-                <div
+                <ProductBar
                   key={p.label}
-                  title={`${p.label}: ${p.count} uds · ${money(p.total)}`}
-                  className="flex items-center justify-between px-3 h-7 rounded-lg text-[10.5px] font-semibold text-[#1a0d04]"
-                  style={{ width: `${Math.max(15, Math.round((p.count / maxTop) * 100))}%`, background: PRODUCT_COLORS[i % PRODUCT_COLORS.length] }}
-                >
-                  <span className="truncate max-w-[70%]">{p.label}</span>
-                  <span className="opacity-80 shrink-0">{p.count}</span>
-                </div>
+                  label={p.label}
+                  count={p.count}
+                  total={p.total}
+                  widthPct={Math.max(15, Math.round((p.count / maxTop) * 100))}
+                  color={PRODUCT_COLORS[i % PRODUCT_COLORS.length]}
+                  delay={i * 70}
+                />
               ))}
             </div>
           )}
@@ -461,7 +573,7 @@ export function DashboardClient({
               >
                 <p className="text-sm text-white truncate">{q.cliente_empresa || q.numero_cotizacion}</p>
                 <span
-                  className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ml-2"
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ml-2${q.diasRestantes === 0 ? " pulse-badge" : ""}`}
                   style={{
                     background: q.diasRestantes <= 2 ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)",
                     color: q.diasRestantes <= 2 ? "#ef4444" : "#f59e0b",

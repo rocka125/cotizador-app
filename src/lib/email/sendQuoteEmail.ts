@@ -40,6 +40,7 @@ function buildEmailHtml(quote: QuoteRow, mensaje: string | undefined, pixelUrl: 
 export async function sendQuoteEmail(params: {
   quote: QuoteRow;
   to: string;
+  cc?: string[];
   mensaje?: string;
   pdfBuffer: Buffer;
   emailToken: string;
@@ -51,6 +52,7 @@ export async function sendQuoteEmail(params: {
   await transporter.sendMail({
     from: process.env.SMTP_FROM,
     to: params.to,
+    cc: params.cc && params.cc.length > 0 ? params.cc : undefined,
     subject: `Cotización ${params.quote.numero_cotizacion} — ${params.quote.empresa_nombre ?? "Fortress8"}`,
     html: buildEmailHtml(params.quote, params.mensaje, pixelUrl),
     attachments: [

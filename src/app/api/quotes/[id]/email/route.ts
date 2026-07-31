@@ -27,9 +27,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const quote = await getQuoteById(id); // RLS-scoped
   if (!quote) return NextResponse.json({ error: "Cotización no encontrada" }, { status: 404 });
 
-  const { to, mensaje } = (await request.json()) as { to: string; mensaje?: string };
+  const { to, cc, mensaje } = (await request.json()) as { to: string; cc?: string[]; mensaje?: string };
   if (!to?.trim() || !to.includes("@")) {
     return NextResponse.json({ error: "Correo de destino inválido" }, { status: 400 });
+  }
+  const ccClean = Array.from(new Set((cc ?? []).map((e) => e.trim()).filter(Boolean)));
+  const invalidCc = ccClean.find((e) => !e.includes("@"));
+  if (invalidCc) {
+    return NextResponse.json({ error: `Correo de copia inválido: ${invalidCc}` }, { status: 400 });
   }
 
   const emailToken = randomUUID();
@@ -54,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const pdfBuffer = await renderQuotePdf(quote, getLogoDataUri());
-    await sendQuoteEmail({ quote, to: to.trim(), mensaje: mensaje?.trim(), pdfBuffer, emailToken });
+    await sendQuoteEmail({ quote, to: to.trim(), cc: ccClean, mensaje: mensaje?.trim(), pdfBuffer, emailToken });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? `No se pudo enviar el correo: ${e.message}` : "No se pudo enviar el correo" },
@@ -66,12 +71,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     accion: "enviar_email",
     quoteId: id,
     numeroCotizacion: quote.numero_cotizacion,
-    detalle: { email_destino: to.trim() },
+    detalle: { email_destino: to.trim(), cc: ccClean },
   });
   await logFollowup(supabase, profile, {
     quoteId: id,
     tipo: "email" as const,
-    descripcion: `Cotización ${quote.numero_cotizacion} enviada por correo a ${to.trim()}.`,
+    descripcion: `Cotización ${quote.numero_cotizacion} enviada por correo a ${to.trim()}${ccClean.length ? ` (copia: ${ccClean.join(", ")})` : ""}.`,
   });
 
   return NextResponse.json({ ok: true });
