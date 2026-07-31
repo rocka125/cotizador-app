@@ -68,11 +68,35 @@ export function AppShell({
         ["--shell-accent2" as string]: theme.accent2,
       }}
     >
+      {/* Ambient glass-theme blobs, ported from the PHP shell's .blob1/.blob2/.blob3 --
+          fixed, blurred, behind everything, recolored per page via --shell-accent. Brighter/
+          more saturated than a first pass so the glass widgets over them read as translucent
+          instead of just a flat dark card. */}
+      <div
+        className="fixed pointer-events-none rounded-full"
+        style={{ width: 560, height: 560, top: -160, left: -120, filter: "blur(80px)", opacity: 0.80, background: `radial-gradient(circle, var(--shell-accent) 0%, transparent 70%)`, zIndex: 0 }}
+      />
+      <div
+        className="fixed pointer-events-none rounded-full"
+        style={{ width: 480, height: 480, bottom: -160, right: -100, filter: "blur(80px)", opacity: 0.80, background: `radial-gradient(circle, var(--shell-accent2) 0%, transparent 70%)`, zIndex: 0 }}
+      />
+      <div
+        className="fixed pointer-events-none rounded-full"
+        style={{ width: 320, height: 320, top: "40%", left: "40%", filter: "blur(100px)", opacity: 0.80, background: `radial-gradient(circle, #FFC876 0%, transparent 70%)`, zIndex: 0 }}
+      />
+
       <Sidebar isAdmin={role === "admin"} onLogout={handleLogout} />
-      <Topbar title={title} userEmail={userEmail} userInitials={initialsFrom(userName, userEmail)} />
+      <Topbar
+        title={title}
+        userEmail={userEmail}
+        userName={userName}
+        userInitials={initialsFrom(userName, userEmail)}
+        role={role}
+        onLogout={handleLogout}
+      />
       <main
-        className="overflow-y-auto"
-        style={{ gridColumn: "2 / -1", gridRow: "2 / -1" }}
+        className="overflow-y-auto relative"
+        style={{ gridColumn: "2 / -1", gridRow: "2 / -1", zIndex: 1 }}
       >
         {children}
       </main>

@@ -12,8 +12,8 @@ const ORANGE = "#D95A00";
 
 const styles = StyleSheet.create({
   page: { padding: 32, fontSize: 9, fontFamily: "Helvetica", color: "#111827" },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#e5e7eb", paddingBottom: 12, marginBottom: 16 },
-  logo: { width: 110, height: 50, objectFit: "contain" },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 2, borderBottomColor: ORANGE, paddingBottom: 12, marginBottom: 16 },
+  logo: { width: 160, height: 68, objectFit: "contain" },
   cotLabel: { fontSize: 8, fontWeight: 700, color: ORANGE, textTransform: "uppercase", letterSpacing: 1, marginTop: 6 },
   cotNumero: { fontSize: 13, fontWeight: 700 },
   cotFecha: { fontSize: 8, color: "#6b7280" },
@@ -107,8 +107,15 @@ export function QuotePdfDocument({ quote, logoSrc }: { quote: QuoteRow; logoSrc?
               <Text style={[styles.td, { width: COL_WIDTHS.unidad, textAlign: "center" }]}>{r.unidad}</Text>
               <Text style={[styles.td, { width: COL_WIDTHS.desc }]}>{r.descripcion}</Text>
               <Text style={[styles.td, { width: COL_WIDTHS.precio, textAlign: "right" }]}>{formatMXN(Number(r.precioUnitario) || 0)}</Text>
-              <Text style={[styles.td, { width: COL_WIDTHS.ext, textAlign: "right" }]}>{formatMXN(r.extendido)}</Text>
-              <Text style={[styles.td, { width: COL_WIDTHS.desc2, textAlign: "right" }]}>{formatMXN(Number(r.descuento) || 0)}</Text>
+              <View style={[styles.td, { width: COL_WIDTHS.ext, alignItems: "flex-end" }]}>
+                <Text style={{ textAlign: "right" }}>{formatMXN(r.extendido)}</Text>
+                {r.descuentoMonto > 0 && (
+                  <Text style={{ textAlign: "right", color: "#dc2626", fontSize: 7 }}>
+                    −{formatMXN(r.descuentoMonto)}
+                  </Text>
+                )}
+              </View>
+              <Text style={[styles.td, { width: COL_WIDTHS.desc2, textAlign: "center" }]}>{r.descuento || "0"}</Text>
               <Text style={[styles.td, { width: COL_WIDTHS.subtotal, textAlign: "right", borderRightWidth: 0 }]}>{formatMXN(r.subtotal)}</Text>
             </View>
           ))}

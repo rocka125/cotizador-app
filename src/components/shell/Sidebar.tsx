@@ -45,8 +45,8 @@ export function Sidebar({
       className="flex flex-col items-center gap-1 py-3 border-r"
       style={{
         width: 56,
-        gridRow: "1 / -1",
-        background: "rgba(0,0,0,0.55)",
+        gridRow: "2 / -1",
+        background: "#000000",
         borderColor: "rgba(255,255,255,0.08)",
       }}
     >

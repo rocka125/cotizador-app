@@ -73,14 +73,27 @@ export interface DashboardStats {
   rejectedCount: number;
   recentQuotes: QuoteListItem[];
   monthlyVolume: { month: string; count: number }[];
+  wave: { labels: string[]; pendientes: number[]; aprobadas: number[]; rechazadas: number[] };
   proximasAVencer: { id: string; numero_cotizacion: string; cliente_empresa: string | null; fecha: string; diasRestantes: number }[];
+  estadosSuma: { pendiente: number; aprobada: number; rechazada: number };
+  calendarioMes: Record<number, number>;
+  topProductos: { label: string; count: number; total: number }[];
+}
+
+interface QuoteItemRow {
+  sku?: string;
+  descripcion?: string;
+  cantidad?: number;
+  subtotal?: number;
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("quotes")
-    .select("id, numero_cotizacion, usuario_id, cliente_empresa, cliente_atencion, total, moneda_code, estado, fecha, vigencia_dias, created_at")
+    .select(
+      "id, numero_cotizacion, usuario_id, cliente_empresa, cliente_atencion, total, moneda_code, estado, fecha, vigencia_dias, created_at, items"
+    )
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -100,6 +113,33 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     .map(([month, count]) => ({ month, count }));
 
   const today = new Date();
+
+  // Evolution wave: daily counts by estado, from the 1st of the current
+  // month through today (matches the PHP dashboard's "Evolución" widget).
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const nDias = Math.floor((today.getTime() - firstOfMonth.getTime()) / 86400000) + 1;
+  const waveLabels: string[] = [];
+  const wavePendientes: number[] = [];
+  const waveAprobadas: number[] = [];
+  const waveRechazadas: number[] = [];
+  for (let i = 0; i < nDias; i++) {
+    const day = new Date(firstOfMonth.getTime() + i * 86400000);
+    waveLabels.push(day.toLocaleDateString("es-MX", { day: "numeric", month: "short" }));
+    wavePendientes.push(0);
+    waveAprobadas.push(0);
+    waveRechazadas.push(0);
+  }
+  for (const r of rows) {
+    const d = new Date(r.created_at);
+    if (d < firstOfMonth || d > today) continue;
+    const dayIndex = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - firstOfMonth.getTime()) / 86400000);
+    if (dayIndex < 0 || dayIndex >= nDias) continue;
+    const estado: string = r.estado;
+    if (estado === "pendiente") wavePendientes[dayIndex]++;
+    else if (estado === "aprobada") waveAprobadas[dayIndex]++;
+    else if (estado === "rechazada") waveRechazadas[dayIndex]++;
+  }
+  const wave = { labels: waveLabels, pendientes: wavePendientes, aprobadas: waveAprobadas, rechazadas: waveRechazadas };
   const proximasAVencer = rows
     .filter((r) => r.estado === "pendiente" && r.vigencia_dias)
     .map((r) => {
@@ -111,15 +151,54 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     .filter((r) => r.diasRestantes >= 0 && r.diasRestantes <= 7)
     .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
+  const estadosSuma = { pendiente: 0, aprobada: 0, rechazada: 0 };
+  for (const r of rows) {
+    const estado: string = r.estado;
+    if (estado === "pendiente" || estado === "aprobada" || estado === "rechazada") {
+      estadosSuma[estado] += r.moneda_code === "USD" ? Number(r.total) : 0;
+    }
+  }
+
+  // Calendar dots: quotes created this calendar month, grouped by day-of-month.
+  const calendarioMes: Record<number, number> = {};
+  for (const r of rows) {
+    const d = new Date(r.created_at);
+    if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()) {
+      calendarioMes[d.getDate()] = (calendarioMes[d.getDate()] ?? 0) + 1;
+    }
+  }
+
+  // Top products: aggregate line items across every quote by sku/descripcion.
+  const productTotals = new Map<string, { count: number; total: number }>();
+  for (const r of rows) {
+    const items = (r.items as QuoteItemRow[] | null) ?? [];
+    for (const it of items) {
+      const label = (it.sku?.trim() || it.descripcion?.trim() || "").slice(0, 40);
+      if (!label) continue;
+      const entry = productTotals.get(label) ?? { count: 0, total: 0 };
+      entry.count += Number(it.cantidad ?? 1);
+      entry.total += Number(it.subtotal ?? 0);
+      productTotals.set(label, entry);
+    }
+  }
+  const topProductos = [...productTotals.entries()]
+    .sort(([, a], [, b]) => b.count - a.count)
+    .slice(0, 6)
+    .map(([label, v]) => ({ label, ...v }));
+
   return {
     totalQuotes: rows.length,
     totalAmountUsd,
     pendingCount: rows.filter((r) => r.estado === "pendiente").length,
     approvedCount: rows.filter((r) => r.estado === "aprobada").length,
     rejectedCount: rows.filter((r) => r.estado === "rechazada").length,
-    recentQuotes: rows.slice(0, 8) as QuoteListItem[],
+    recentQuotes: rows.slice(0, 8) as unknown as QuoteListItem[],
     monthlyVolume,
+    wave,
     proximasAVencer,
+    estadosSuma,
+    calendarioMes,
+    topProductos,
   };
 }
 
@@ -136,6 +215,7 @@ export interface SeguimientoBoardItem {
   email_opened_at: string | null;
   created_at: string;
   lastContactAt: string | null;
+  followupCount: number;
 }
 
 export type SeguimientoFilter = "activas" | "enviadas" | "sin_correo" | "todas";
@@ -168,11 +248,49 @@ export async function listSeguimientoBoard(filtro: SeguimientoFilter = "activas"
     .order("fecha_contacto", { ascending: false });
 
   const lastContact = new Map<string, string>();
+  const followupCounts = new Map<string, number>();
   for (const f of followups ?? []) {
     if (!lastContact.has(f.quote_id)) lastContact.set(f.quote_id, f.fecha_contacto);
+    followupCounts.set(f.quote_id, (followupCounts.get(f.quote_id) ?? 0) + 1);
   }
 
-  return quotesArr.map((q) => ({ ...q, lastContactAt: lastContact.get(q.id) ?? null }));
+  return quotesArr.map((q) => ({
+    ...q,
+    lastContactAt: lastContact.get(q.id) ?? null,
+    followupCount: followupCounts.get(q.id) ?? 0,
+  }));
+}
+
+export interface SeguimientoSummary {
+  activas: number;
+  enviadas: number;
+  abiertas: number;
+  conSeguimiento: number;
+  urgentes: number;
+  tasaApertura: number;
+}
+
+// Powers the Dashboard's "Seguimiento" summary widget -- same board query
+// used by the full Seguimiento page, just reduced to counters.
+export async function getSeguimientoSummary(): Promise<SeguimientoSummary> {
+  const items = await listSeguimientoBoard("activas");
+  const enviadas = items.filter((i) => i.email_token).length;
+  const abiertas = items.filter((i) => i.email_opened_at).length;
+  const conSeguimiento = items.filter((i) => i.followupCount > 1).length;
+  const urgentes = items.filter((i) => {
+    const d = i.lastContactAt ?? i.created_at;
+    const dias = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+    return dias >= 5;
+  }).length;
+
+  return {
+    activas: items.length,
+    enviadas,
+    abiertas,
+    conSeguimiento,
+    urgentes,
+    tasaApertura: enviadas > 0 ? Math.round((abiertas / enviadas) * 100) : 0,
+  };
 }
 
 export interface FollowupRow {

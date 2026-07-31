@@ -14,6 +14,7 @@ export const formatMXN = (n: number) =>
 
 export interface LineItemRow extends LineItem {
   extendido: number;
+  descuentoMonto: number;
   subtotal: number;
 }
 
@@ -33,10 +34,15 @@ export function computeTotals(
   const rows = items.map((item) => {
     const cant = parseMoneyInput(item.cant);
     const precio = parseMoneyInput(item.precioUnitario);
-    const descuento = parseMoneyInput(item.descuento);
+    // "descuento" is a discount PERCENTAGE (0-100), matching the original
+    // PHP editor's "DESC. %" column -- not a flat peso amount. The peso
+    // amount it works out to gets its own field (descuentoMonto) so the UI
+    // can show it as the "-$X" line under P. Extendido, same as the PHP app.
+    const descuentoPct = Math.max(0, Math.min(100, parseMoneyInput(item.descuento)));
     const extendido = cant * precio;
-    const subtotal = extendido - descuento;
-    return { ...item, extendido, subtotal };
+    const descuentoMonto = extendido * (descuentoPct / 100);
+    const subtotal = extendido - descuentoMonto;
+    return { ...item, extendido, descuentoMonto, subtotal };
   });
 
   const subtotalGlobal = rows.reduce((s, r) => s + r.subtotal, 0);
