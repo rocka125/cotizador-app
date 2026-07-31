@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { IconBell, IconVolume, IconVolumeOff } from "@tabler/icons-react";
+import { IconBell, IconVolume, IconVolumeOff, IconDeviceDesktop, IconDeviceDesktopCheck, IconDeviceDesktopOff } from "@tabler/icons-react";
 import { playNotifSound, isSoundEnabled, setSoundEnabled } from "@/lib/notifSound";
+import { getDesktopPermission, requestDesktopPermission, showDesktopNotification, type DesktopPermission } from "@/lib/desktopNotify";
+import { createClient } from "@/lib/supabase/client";
 
 interface Notification {
   id: string;
@@ -20,20 +22,28 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
+  const [desktopPerm, setDesktopPerm] = useState<DesktopPermission>("unsupported");
 
-  // null until the first fetch primes it -- prevents playing a sound for
-  // every already-unread notification the moment the app loads, since only
-  // ids that show up in a LATER poll (i.e. genuinely new) should play one.
+  // null until the first fetch primes it -- prevents playing a sound (or
+  // popping a desktop toast) for every already-unread notification the
+  // moment the app loads, since only ids that show up LATER (i.e.
+  // genuinely new) should trigger either.
   const seenIds = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     setSoundOn(isSoundEnabled());
+    setDesktopPerm(getDesktopPermission());
   }, []);
 
   function toggleSound() {
     const next = !soundOn;
     setSoundOn(next);
     setSoundEnabled(next);
+  }
+
+  async function enableDesktopNotifications() {
+    const perm = await requestDesktopPermission();
+    setDesktopPerm(perm);
   }
 
   const fetchNotifications = useCallback(async () => {
@@ -47,7 +57,16 @@ export function NotificationBell() {
         seenIds.current = new Set(list.map((n) => n.id));
       } else {
         const arrived = list.filter((n) => !n.leido && !seenIds.current!.has(n.id));
-        for (const n of arrived) playNotifSound(n.tipo);
+        for (const n of arrived) {
+          playNotifSound(n.tipo);
+          showDesktopNotification({
+            tipo: n.tipo,
+            mensaje: n.mensaje,
+            onClick: () => {
+              if (n.quote_id) router.push(`/cotizaciones/${n.quote_id}/ver`);
+            },
+          });
+        }
         seenIds.current = new Set(list.map((n) => n.id));
       }
 
@@ -56,12 +75,32 @@ export function NotificationBell() {
     } catch {
       // silent — notification polling shouldn't surface errors to the user
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchNotifications();
+    // Kept as a fallback safety net -- Realtime (below) is the fast path,
+    // this just covers a dropped socket or a tab that was asleep.
     const interval = setInterval(fetchNotifications, 45000);
     return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  // Realtime: push new rows the instant they're inserted instead of waiting
+  // up to 45s for the next poll (migration 0020 adds notifications to the
+  // supabase_realtime publication; RLS still scopes this to the user's own
+  // rows). Falls straight through to the same fetchNotifications() diff
+  // logic above so sound/desktop-toast/badge all stay in one code path.
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("notifications-bell")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => {
+        fetchNotifications();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchNotifications]);
 
   async function handleOpen() {
@@ -124,6 +163,34 @@ export function NotificationBell() {
                 >
                   {soundOn ? <IconVolume size={15} /> : <IconVolumeOff size={15} />}
                 </button>
+                {desktopPerm !== "unsupported" && (
+                  <button
+                    onClick={desktopPerm === "default" ? enableDesktopNotifications : undefined}
+                    disabled={desktopPerm !== "default"}
+                    title={
+                      desktopPerm === "granted"
+                        ? "Avisos de escritorio activos"
+                        : desktopPerm === "denied"
+                        ? "Bloqueado — actívalo en la configuración del navegador"
+                        : "Activar avisos de escritorio"
+                    }
+                    className={
+                      desktopPerm === "granted"
+                        ? "text-[var(--shell-accent)]"
+                        : desktopPerm === "denied"
+                        ? "text-white/15 cursor-not-allowed"
+                        : "text-white/40 hover:text-white transition-colors"
+                    }
+                  >
+                    {desktopPerm === "granted" ? (
+                      <IconDeviceDesktopCheck size={15} />
+                    ) : desktopPerm === "denied" ? (
+                      <IconDeviceDesktopOff size={15} />
+                    ) : (
+                      <IconDeviceDesktop size={15} />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
             {notifications.length === 0 && <p className="text-center text-white/30 text-sm py-8">Sin notificaciones.</p>}
