@@ -630,15 +630,6 @@ export default function CotizacionForm({
       .then(setExchangeRate)
       .catch(() => {});
   }, []);
-
-  // Sync tipoCambio to the live rate whenever the currency changes -- still
-  // just a normal editable field, so typing a manually negotiated rate
-  // afterward (without switching currency again) is never overwritten.
-  useEffect(() => {
-    if (monedaCode === "USD" || !exchangeRate) return;
-    const rate = monedaCode === "MXN" ? exchangeRate.MXN : exchangeRate.EUR;
-    if (rate) setTipoCambio(rate.toFixed(4));
-  }, [monedaCode, exchangeRate]);
   const [atencion, setAtencion] = useState(initial?.atencion ?? "");
   const [clientePuesto, setClientePuesto] = useState(initial?.clientePuesto ?? "");
   const [clienteEmpresa, setClienteEmpresa] = useState(initial?.clienteEmpresa ?? "");
@@ -671,19 +662,52 @@ export default function CotizacionForm({
   const [estado, setEstado] = useState<EstadoCotizacion>(initialEstado);
   const [mensajeAdmin, setMensajeAdmin] = useState("");
 
-  // Currency change -> fetch a live rate for non-USD (editable afterward).
+  // Currency change -> fetch a live rate for non-USD (editable afterward as
+  // a normal field, so typing a manually negotiated rate afterward is never
+  // overwritten) AND rescale every existing line's precioUnitario by the
+  // ratio between the old and new rate, so switching currency mid-quote
+  // converts prices already on the grid instead of leaving them in the old
+  // currency's numbers under the new currency's label. Skipped on first
+  // mount so loading an existing quote never touches its saved prices.
+  const isFirstMonedaRender = useRef(true);
+  const prevRateRef = useRef(monedaCode === "USD" ? 1 : parseMXN(tipoCambio) || 1);
   useEffect(() => {
-    if (monedaCode === "USD") {
-      setTipoCambio("1.0000");
+    if (isFirstMonedaRender.current) {
+      isFirstMonedaRender.current = false;
       return;
     }
-    fetch("/api/exchange-rate")
-      .then((r) => r.json())
-      .then((rates) => {
-        const rate = rates[monedaCode];
-        if (rate) setTipoCambio(String(rate));
-      })
-      .catch(() => {});
+    let cancelled = false;
+    async function syncRateAndConvert() {
+      let newRate = 1;
+      if (monedaCode !== "USD") {
+        try {
+          const res = await fetch("/api/exchange-rate");
+          const rates = await res.json();
+          newRate = Number(rates[monedaCode]) || prevRateRef.current || 1;
+          if (!cancelled) setExchangeRate(rates);
+        } catch {
+          newRate = prevRateRef.current || 1;
+        }
+      }
+      if (cancelled) return;
+
+      const oldRate = prevRateRef.current || 1;
+      setTipoCambio(monedaCode === "USD" ? "1.0000" : newRate.toFixed(4));
+      if (oldRate !== newRate) {
+        setItems((prev) =>
+          prev.map((it) => {
+            const n = parseMXN(it.precioUnitario);
+            if (!n) return it;
+            return { ...it, precioUnitario: ((n / oldRate) * newRate).toFixed(2) };
+          })
+        );
+      }
+      prevRateRef.current = newRate;
+    }
+    syncRateAndConvert();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monedaCode]);
 
@@ -725,8 +749,14 @@ export default function CotizacionForm({
   const [ivaPercent, setIvaPercent] = useState(initial?.ivaPercent ?? "16");
 
   // ── Agregar desde lista de precios ──
+  // The price list is always quoted in USD (see PriceListPanel's "· USD"
+  // footer) -- convert to the quote's current currency at the currently
+  // displayed rate (which may be a manually negotiated override, not just
+  // the live one) so an item added while moneda=MXN lands in pesos, not USD.
   const handleAddFromList = useCallback(
     (item: { sku: string; desc: string; price: number }) => {
+      const rate = monedaCode === "USD" ? 1 : parseMXN(tipoCambio) || 1;
+      const precio = (item.price * rate).toFixed(2);
       setItems((prev) => {
         const last = prev[prev.length - 1];
         const isEmpty =
@@ -738,7 +768,7 @@ export default function CotizacionForm({
                   ...it,
                   sku: item.sku,
                   descripcion: item.desc,
-                  precioUnitario: String(item.price),
+                  precioUnitario: precio,
                   cant: "1",
                   unidad: "PZA",
                 }
@@ -753,13 +783,13 @@ export default function CotizacionForm({
             sku: item.sku,
             unidad: "PZA",
             descripcion: item.desc,
-            precioUnitario: String(item.price),
+            precioUnitario: precio,
             descuento: "",
           },
         ];
       });
     },
-    []
+    [monedaCode, tipoCambio]
   );
 
   // ── Cálculos ──
