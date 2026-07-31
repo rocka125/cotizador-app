@@ -38,9 +38,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Sending a quote is a strong signal it belongs on the Seguimiento board --
   // un-hide it even if it was previously deleted from that board (see
   // toggleOcultar in seguimiento/actions.ts).
+  //
+  // Reset email_opened_at/email_open_count on every (re)send: a fresh
+  // email_token starts a brand-new open-tracking cycle, and the previous
+  // opened state (whether from an earlier send or from the legacy PHP data
+  // import) must not leak into it. Otherwise the quote shows "abierta"
+  // instantly regardless of whether *this* email was actually opened, and
+  // record_email_open() thinks it's already seen an open, so it skips the
+  // seguimiento entry + notification when the client genuinely opens it.
   const { error: tokenError } = await supabase
     .from("quotes")
-    .update({ email_token: emailToken, seguimiento_oculto: false })
+    .update({ email_token: emailToken, seguimiento_oculto: false, email_opened_at: null, email_open_count: 0 })
     .eq("id", id);
   if (tokenError) return NextResponse.json({ error: tokenError.message }, { status: 500 });
 
