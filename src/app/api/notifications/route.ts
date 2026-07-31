@@ -9,7 +9,7 @@ export async function GET() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, quote_id, mensaje, leido, created_at")
+    .select("id, quote_id, mensaje, leido, tipo, created_at")
     .eq("usuario_id", profile.id)
     .order("created_at", { ascending: false })
     .limit(30);

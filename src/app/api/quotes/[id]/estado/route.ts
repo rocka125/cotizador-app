@@ -50,6 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     targetUserId: existing.usuario_id,
     quoteId: id,
     mensaje: `Tu cotización ${existing.numero_cotizacion} fue marcada como ${estado}.`,
+    tipo: "estado",
   });
 
   return NextResponse.json({ id, estado });

@@ -28,7 +28,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${quote.numero_cotizacion}.pdf"`,
+      // "inline" (not "attachment") lets the browser preview the PDF in the
+      // tab it was opened in -- same experience as the "nueva cotización"
+      // browser-print path, instead of forcing an immediate download.
+      "Content-Disposition": `inline; filename="${quote.numero_cotizacion}.pdf"`,
     },
   });
 }

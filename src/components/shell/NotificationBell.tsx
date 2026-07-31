@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { IconBell } from "@tabler/icons-react";
+import { IconBell, IconVolume, IconVolumeOff } from "@tabler/icons-react";
+import { playNotifSound, isSoundEnabled, setSoundEnabled } from "@/lib/notifSound";
 
 interface Notification {
   id: string;
   quote_id: string | null;
   mensaje: string;
   leido: boolean;
+  tipo: string | null;
   created_at: string;
 }
 
@@ -17,13 +19,39 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [soundOn, setSoundOn] = useState(true);
+
+  // null until the first fetch primes it -- prevents playing a sound for
+  // every already-unread notification the moment the app loads, since only
+  // ids that show up in a LATER poll (i.e. genuinely new) should play one.
+  const seenIds = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    setSoundOn(isSoundEnabled());
+  }, []);
+
+  function toggleSound() {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
+  }
 
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications");
       if (!res.ok) return;
       const body = await res.json();
-      setNotifications(body.notifications ?? []);
+      const list: Notification[] = body.notifications ?? [];
+
+      if (seenIds.current === null) {
+        seenIds.current = new Set(list.map((n) => n.id));
+      } else {
+        const arrived = list.filter((n) => !n.leido && !seenIds.current!.has(n.id));
+        for (const n of arrived) playNotifSound(n.tipo);
+        seenIds.current = new Set(list.map((n) => n.id));
+      }
+
+      setNotifications(list);
       setUnreadCount(body.unreadCount ?? 0);
     } catch {
       // silent — notification polling shouldn't surface errors to the user
@@ -83,11 +111,20 @@ export function NotificationBell() {
           <div className="absolute right-0 top-10 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/10 bg-gray-900 shadow-2xl z-50">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <span className="text-sm font-semibold text-white">Notificaciones</span>
-              {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-xs text-[var(--shell-accent)] hover:underline">
-                  Marcar todas
+              <div className="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="text-xs text-[var(--shell-accent)] hover:underline">
+                    Marcar todas
+                  </button>
+                )}
+                <button
+                  onClick={toggleSound}
+                  title={soundOn ? "Silenciar sonidos" : "Activar sonidos"}
+                  className="text-white/40 hover:text-white transition-colors"
+                >
+                  {soundOn ? <IconVolume size={15} /> : <IconVolumeOff size={15} />}
                 </button>
-              )}
+              </div>
             </div>
             {notifications.length === 0 && <p className="text-center text-white/30 text-sm py-8">Sin notificaciones.</p>}
             {notifications.map((n) => (

@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     await notifyAdmins(supabase, profile, {
       quoteId: inserted.id,
       mensaje: `${profile.nombre ?? profile.email} creó la cotización ${inserted.numero_cotizacion} (Cliente: ${payload.clienteEmpresa}, Total: $${Number(columns.total).toLocaleString()})`,
+      tipo: "creacion",
     });
   }
 

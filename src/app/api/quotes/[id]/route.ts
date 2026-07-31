@@ -66,12 +66,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await notifyAdmins(supabase, profile, {
       quoteId: id,
       mensaje: `${profile.nombre ?? profile.email} editó la cotización ${existing.numero_cotizacion} (Cliente: ${payload.clienteEmpresa}, Total: $${Number(columns.total).toLocaleString()})`,
+      tipo: "edicion",
     });
   } else if (!isOwner) {
     const mensaje = payload.mensajeAdmin?.trim()
       ? `Un administrador editó tu cotización ${existing.numero_cotizacion}: "${payload.mensajeAdmin.trim()}"`
       : `Un administrador editó tu cotización ${existing.numero_cotizacion}.`;
-    await notifyUser(supabase, profile, { targetUserId: existing.usuario_id, quoteId: id, mensaje });
+    await notifyUser(supabase, profile, { targetUserId: existing.usuario_id, quoteId: id, mensaje, tipo: "edicion" });
   }
 
   return NextResponse.json({ id, estado: nextEstado });
@@ -109,6 +110,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     // otherwise reference an id that no longer exists in `quotes`.
     await notifyAdmins(supabase, profile, {
       mensaje: `${profile.nombre ?? profile.email} eliminó la cotización ${deleted.numero_cotizacion}`,
+      tipo: "eliminacion",
     });
   }
 

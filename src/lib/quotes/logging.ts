@@ -48,12 +48,25 @@ async function getAdminIds(supabase: Db, exceptUserId: string): Promise<string[]
   return (data ?? []).map((r) => r.id as string).filter((id) => id !== exceptUserId);
 }
 
+// Matches notifications.tipo's check constraint (migration 0019) -- lets
+// the bell (NotificationBell.tsx / notifSound.ts) play a distinct sound per
+// kind of event instead of one generic ping for everything.
+export type NotifTipo =
+  | "creacion"
+  | "edicion"
+  | "eliminacion"
+  | "estado"
+  | "email_abierto"
+  | "nota_ajena"
+  | "urgente"
+  | "vigencia";
+
 // Non-admin created/edited a quote -> notify every admin (except the actor,
 // in case an admin's own account somehow triggers this path).
 export async function notifyAdmins(
   supabase: Db,
   actor: Profile,
-  params: { quoteId?: string | null; mensaje: string }
+  params: { quoteId?: string | null; mensaje: string; tipo: NotifTipo }
 ) {
   const adminIds = await getAdminIds(supabase, actor.id);
   if (adminIds.length === 0) return;
@@ -63,6 +76,7 @@ export async function notifyAdmins(
       quote_id: params.quoteId ?? null,
       mensaje: params.mensaje,
       creado_por: actor.id,
+      tipo: params.tipo,
     }))
   );
 }
@@ -71,7 +85,7 @@ export async function notifyAdmins(
 export async function notifyUser(
   supabase: Db,
   actor: Profile,
-  params: { targetUserId: string; quoteId?: string | null; mensaje: string }
+  params: { targetUserId: string; quoteId?: string | null; mensaje: string; tipo: NotifTipo }
 ) {
   if (params.targetUserId === actor.id) return; // don't notify yourself
   await supabase.from("notifications").insert({
@@ -79,5 +93,6 @@ export async function notifyUser(
     quote_id: params.quoteId ?? null,
     mensaje: params.mensaje,
     creado_por: actor.id,
+    tipo: params.tipo,
   });
 }

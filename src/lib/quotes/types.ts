@@ -44,4 +44,10 @@ export interface FirmaInfo {
 
 export type MonedaCode = "USD" | "MXN" | "EUR";
 
+export const MONEDA_LABELS: Record<MonedaCode, string> = {
+  USD: "USD (Dólares americanos)",
+  MXN: "MXN (Pesos mexicanos)",
+  EUR: "EUR (Euros)",
+};
+
 export type EstadoCotizacion = "pendiente" | "aprobada" | "rechazada";

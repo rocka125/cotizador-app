@@ -8,17 +8,12 @@ import { useReactToPrint } from "react-to-print";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import type { PriceItem, LineItem, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "@/lib/quotes/types";
+import { MONEDA_LABELS } from "@/lib/quotes/types";
 import { computeTotals, parseMoneyInput as parseMXN, formatMXN } from "@/lib/quotes/totals";
 import type { QuoteFormState, QuoteSavePayload } from "@/lib/quotes/serialize";
 import { EmailModal } from "@/components/quotes/EmailModal";
 
 export type { PriceItem };
-
-const MONEDA_LABELS: Record<MonedaCode, string> = {
-  USD: "USD (Dólares americanos)",
-  MXN: "MXN (Pesos mexicanos)",
-  EUR: "EUR (Euros)",
-};
 
 // ─── Hook: carga precios desde Supabase ───────────────────────────────────────
 function usePriceList() {
@@ -47,6 +42,18 @@ function usePriceList() {
 }
 
 let nextId = 2;
+
+// Rescale every line's precioUnitario by the ratio between an old and a new
+// USD exchange rate -- shared by the currency-switch effect and the "manual
+// rate reset" handler so both go through the exact same math.
+function convertItemPrices(prevItems: LineItem[], oldRate: number, newRate: number): LineItem[] {
+  if (oldRate === newRate) return prevItems;
+  return prevItems.map((it) => {
+    const n = parseFloat(it.precioUnitario.replace(/[^0-9.]/g, "")) || 0;
+    if (!n) return it;
+    return { ...it, precioUnitario: ((n / oldRate) * newRate).toFixed(2) };
+  });
+}
 
 // ─── Editable field ───────────────────────────────────────────────────────────
 function Editable({
@@ -623,6 +630,10 @@ export default function CotizacionForm({
   const [monedaCode, setMonedaCode] = useState<MonedaCode>(initial?.monedaCode ?? "USD");
   const [tipoCambio, setTipoCambio] = useState(initial?.tipoCambio ?? "1.0000");
   const [exchangeRate, setExchangeRate] = useState<{ MXN: number; EUR: number; live: boolean } | null>(null);
+  // True once the user hand-edits the rate field -- while true, the "En
+  // vivo" badge switches to "Manual" and further currency-change fetches
+  // stop silently overwriting what they typed (see the effect below).
+  const [rateIsCustom, setRateIsCustom] = useState(false);
 
   useEffect(() => {
     fetch("/api/exchange-rate")
@@ -662,13 +673,18 @@ export default function CotizacionForm({
   const [estado, setEstado] = useState<EstadoCotizacion>(initialEstado);
   const [mensajeAdmin, setMensajeAdmin] = useState("");
 
-  // Currency change -> fetch a live rate for non-USD (editable afterward as
-  // a normal field, so typing a manually negotiated rate afterward is never
-  // overwritten) AND rescale every existing line's precioUnitario by the
-  // ratio between the old and new rate, so switching currency mid-quote
-  // converts prices already on the grid instead of leaving them in the old
-  // currency's numbers under the new currency's label. Skipped on first
-  // mount so loading an existing quote never touches its saved prices.
+  // Currency change -> fetch a live rate for non-USD and rescale every
+  // existing line's precioUnitario by the ratio between the old and new
+  // rate, so switching currency mid-quote converts prices already on the
+  // grid instead of leaving them in the old currency's numbers under the
+  // new currency's label. Skipped on first mount so loading an existing
+  // quote never touches its saved prices.
+  //
+  // If the user hand-typed a rate (rateIsCustom), a currency change leaves
+  // it alone instead of silently overwriting it with a fresh fetch -- same
+  // as the PHP source's onCurrencyChange(): `if (!rateIsCustom) applyTodayRate()`.
+  // Only USD always forces the rate back to 1, since there's nothing to
+  // negotiate there.
   const isFirstMonedaRender = useRef(true);
   const prevRateRef = useRef(monedaCode === "USD" ? 1 : parseMXN(tipoCambio) || 1);
   useEffect(() => {
@@ -676,6 +692,8 @@ export default function CotizacionForm({
       isFirstMonedaRender.current = false;
       return;
     }
+    if (monedaCode !== "USD" && rateIsCustom) return;
+
     let cancelled = false;
     async function syncRateAndConvert() {
       let newRate = 1;
@@ -683,33 +701,51 @@ export default function CotizacionForm({
         try {
           const res = await fetch("/api/exchange-rate");
           const rates = await res.json();
+          if (cancelled) return;
+          setExchangeRate(rates);
           newRate = Number(rates[monedaCode]) || prevRateRef.current || 1;
-          if (!cancelled) setExchangeRate(rates);
         } catch {
           newRate = prevRateRef.current || 1;
         }
       }
       if (cancelled) return;
-
       const oldRate = prevRateRef.current || 1;
       setTipoCambio(monedaCode === "USD" ? "1.0000" : newRate.toFixed(4));
-      if (oldRate !== newRate) {
-        setItems((prev) =>
-          prev.map((it) => {
-            const n = parseMXN(it.precioUnitario);
-            if (!n) return it;
-            return { ...it, precioUnitario: ((n / oldRate) * newRate).toFixed(2) };
-          })
-        );
-      }
+      if (oldRate !== newRate) setItems((prev) => convertItemPrices(prev, oldRate, newRate));
       prevRateRef.current = newRate;
     }
     syncRateAndConvert();
     return () => {
       cancelled = true;
     };
+    // Deliberately excludes rateIsCustom -- it should only be consulted at
+    // the moment the currency itself changes, not re-trigger this effect by
+    // itself (that would re-fetch right after handleResetRate just set it).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monedaCode]);
+
+  // "Restablecer" button -- discards the manual override and re-syncs to
+  // today's live rate, rescaling the grid the same way a currency switch does.
+  async function handleResetRate() {
+    try {
+      const res = await fetch("/api/exchange-rate");
+      const rates = await res.json();
+      setExchangeRate(rates);
+      const newRate = Number(rates[monedaCode]) || 1;
+      const oldRate = parseMXN(tipoCambio) || 1;
+      setTipoCambio(newRate.toFixed(4));
+      setItems((prev) => convertItemPrices(prev, oldRate, newRate));
+      prevRateRef.current = newRate;
+      setRateIsCustom(false);
+    } catch {
+      // silent -- keep the custom rate if the live fetch fails
+    }
+  }
+
+  function handleTipoCambioChange(v: string) {
+    setTipoCambio(v);
+    setRateIsCustom(true);
+  }
 
   const handleSelloUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -881,8 +917,14 @@ export default function CotizacionForm({
         input, textarea {
           border: none !important; background: transparent !important;
           color: #111827 !important; -webkit-text-fill-color: #111827 !important;
-          width: 100% !important; box-sizing: border-box !important;
+          box-sizing: border-box !important;
         }
+        /* Only the items table's cells need to stretch to fill their column --
+           free-standing fields (vigencia, tipo de cambio, etc.) keep their own
+           intrinsic width, otherwise this rule stretches them to the full row
+           width and shoves whatever text follows them (e.g. "días naturales")
+           far off to the right. */
+        table input, table textarea { width: 100% !important; }
         input::placeholder, textarea::placeholder { color: transparent !important; }
         .print\\:hidden { display: none !important; }
       }
@@ -1078,7 +1120,7 @@ export default function CotizacionForm({
                   value={empresa.nombre}
                   onChange={setEmp("nombre")}
                   placeholder="Nombre de la empresa"
-                  className="text-sm w-72"
+                  className="text-sm w-72.5"
                   align="right"
                   bold
                 />
@@ -1093,7 +1135,7 @@ export default function CotizacionForm({
                   value={empresa.direccion}
                   onChange={setEmp("direccion")}
                   placeholder="Dirección"
-                  className="text-xs text-gray-600 w-72"
+                  className="text-xs text-gray-600 w-90"
                   align="right"
                 />
                 <Editable
@@ -1116,7 +1158,7 @@ export default function CotizacionForm({
                     value={empresa.telOficina}
                     onChange={setEmp("telOficina")}
                     placeholder="Tel oficina"
-                    className="text-xs text-gray-600 w-28"
+                    className="text-xs text-gray-600 w-18"
                   />
                   <span className="text-gray-400 mx-1">|</span>
                   <span>M:</span>
@@ -1124,7 +1166,7 @@ export default function CotizacionForm({
                     value={empresa.telMovil}
                     onChange={setEmp("telMovil")}
                     placeholder="Tel móvil"
-                    className="text-xs text-gray-600 w-28"
+                    className="text-xs text-gray-600 w-17.5"
                   />
                 </div>
               </div>
@@ -1185,7 +1227,7 @@ export default function CotizacionForm({
                 >
                   <colgroup>
                     <col style={{ width: 38 }} />
-                    <col style={{ width: 100 }} />
+                    <col style={{ width: 130 }} />
                     <col style={{ width: 46 }} />
                     <col />
                     <col style={{ width: 70 }} />
@@ -1234,13 +1276,29 @@ export default function CotizacionForm({
                             }
                           />
                         </td>
-                        <td className="border border-gray-300 p-0">
-                          <input
-                            className={cell + " text-[10px]"}
+                        <td className="border border-gray-300 p-0 align-top">
+                          <textarea
+                            className={cell + " resize-none leading-snug text-[10px] break-all"}
                             placeholder="—"
                             value={item.sku}
+                            rows={1}
                             autoComplete="off"
                             spellCheck={false}
+                            style={{ height: "auto", minHeight: 22 }}
+                            // Long SKUs (e.g. "FC-10-F108N-314-02-12") don't fit
+                            // a single-line input at this column width -- wrap
+                            // and auto-grow instead of clipping, same pattern as
+                            // the descripción textarea below.
+                            ref={(el) => {
+                              if (!el) return;
+                              el.style.height = "auto";
+                              el.style.height = el.scrollHeight + "px";
+                            }}
+                            onInput={(e) => {
+                              const t = e.currentTarget;
+                              t.style.height = "auto";
+                              t.style.height = t.scrollHeight + "px";
+                            }}
                             onChange={(e) =>
                               updateItem(item.id, "sku", e.target.value)
                             }
@@ -1314,14 +1372,7 @@ export default function CotizacionForm({
                         <td className="border border-gray-300 px-1 py-1 text-right text-[11px] font-medium text-gray-900 tabular-nums break-all">
                           {parseMXN(item.cant) > 0 &&
                           parseMXN(item.precioUnitario) > 0 ? (
-                            <>
-                              {formatMXN(item.extendido)}
-                              {item.descuentoMonto > 0 && (
-                                <div className="text-red-600 font-normal">
-                                  −{formatMXN(item.descuentoMonto)}
-                                </div>
-                              )}
-                            </>
+                            formatMXN(item.extendido)
                           ) : (
                             <span className="text-gray-300">—</span>
                           )}
@@ -1343,7 +1394,14 @@ export default function CotizacionForm({
                         <td className="border border-gray-300 px-1 py-1 text-right text-[11px] font-semibold text-gray-900 tabular-nums break-all">
                           {parseMXN(item.cant) > 0 &&
                           parseMXN(item.precioUnitario) > 0 ? (
-                            formatMXN(item.subtotal)
+                            <>
+                              {formatMXN(item.subtotal)}
+                              {item.descuentoMonto > 0 && (
+                                <div className="text-red-600 font-normal">
+                                  −{formatMXN(item.descuentoMonto)}
+                                </div>
+                              )}
+                            </>
                           ) : (
                             <span className="text-gray-300">—</span>
                           )}
@@ -1415,16 +1473,32 @@ export default function CotizacionForm({
                           <span className="text-gray-500">1 USD =</span>
                           <Editable
                             value={tipoCambio}
-                            onChange={setTipoCambio}
+                            onChange={handleTipoCambioChange}
                             placeholder="1.0000"
                             className="text-[11px] w-16"
                             bold
                           />
                           <span className="text-gray-500">{monedaCode}</span>
-                          {exchangeRate?.live && (
-                            <span className="inline-flex items-center gap-1 text-[9px] text-green-700 bg-green-100 rounded-full px-1.5 py-0.5 print:hidden">
-                              <span className="w-1 h-1 rounded-full bg-green-500" /> En vivo
-                            </span>
+                          {rateIsCustom ? (
+                            <>
+                              <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-amber-800 bg-amber-100 rounded-full px-1.5 py-0.5 print:hidden">
+                                ✏ Manual
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleResetRate}
+                                className="print:hidden text-[9px] text-gray-500 border border-gray-300 rounded px-1.5 py-0.5 hover:border-[#D95A00] hover:text-[#D95A00] transition-colors"
+                                title="Volver al tipo de cambio en vivo"
+                              >
+                                ↺ Restablecer
+                              </button>
+                            </>
+                          ) : (
+                            exchangeRate?.live && (
+                              <span className="inline-flex items-center gap-1 text-[9px] text-green-700 bg-green-100 rounded-full px-1.5 py-0.5 print:hidden">
+                                <span className="w-1 h-1 rounded-full bg-green-500" /> En vivo
+                              </span>
+                            )
                           )}
                         </div>
                       </>
@@ -1658,64 +1732,7 @@ export default function CotizacionForm({
                   />
                 </label>
               </div>
-
-              {/* ── Footer legal ── */}
-              <div className="border-t border-gray-200 pt-4 flex justify-between text-[10px] text-gray-500">
-                <div className="flex flex-col gap-0.5">
-                  <Editable
-                    value={empresa.nombre}
-                    onChange={setEmp("nombre")}
-                    placeholder="Nombre empresa"
-                    className="text-[10px] w-64"
-                  />
-                  <Editable
-                    value={empresa.rfc}
-                    onChange={setEmp("rfc")}
-                    placeholder="RFC"
-                    className="text-[10px] w-32"
-                  />
-                  <Editable
-                    value={empresa.direccion}
-                    onChange={setEmp("direccion")}
-                    placeholder="Dirección"
-                    className="text-[10px] w-72"
-                  />
-                </div>
-                <div className="flex flex-col items-end gap-0.5">
-                  <Editable
-                    value={empresa.web}
-                    onChange={setEmp("web")}
-                    placeholder="www.sitio.com"
-                    className="text-[10px] w-40"
-                    align="right"
-                  />
-                  <Editable
-                    value={empresa.email}
-                    onChange={setEmp("email")}
-                    placeholder="correo@empresa.com"
-                    className="text-[10px] w-48"
-                    align="right"
-                  />
-                  <div className="flex items-center gap-1 text-[10px]">
-                    <span>O:</span>
-                    <Editable
-                      value={empresa.telOficina}
-                      onChange={setEmp("telOficina")}
-                      placeholder="Tel oficina"
-                      className="text-[10px] w-24"
-                    />
-                    <span className="text-gray-400 mx-0.5">|</span>
-                    <span>M:</span>
-                    <Editable
-                      value={empresa.telMovil}
-                      onChange={setEmp("telMovil")}
-                      placeholder="Tel móvil"
-                      className="text-[10px] w-24"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            </div>        
           </div>
         </div>
       </div>
