@@ -251,19 +251,19 @@ export function DashboardClient({
         </Glass>
 
         {/* KPI minis */}
-        <Glass className="col-span-6 md:col-span-3">
+        <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
           <p className="font-serif text-[27px] font-semibold" style={{ color: "var(--shell-accent)" }}>{stats.totalQuotes}</p>
           <p className="text-[11px] text-white/40 mt-1">Cotizaciones totales</p>
         </Glass>
-        <Glass className="col-span-6 md:col-span-3">
+        <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
           <p className="font-serif text-[27px] font-semibold text-[#8FE3A6]">{conversionRate}%</p>
           <p className="text-[11px] text-white/40 mt-1">Tasa de aprobación</p>
         </Glass>
-        <Glass className="col-span-6 md:col-span-3">
+        <Glass className="col-span-12 sm:col-span-6 md:col-span-3">
           <p className="font-serif text-[27px] font-semibold text-[#FFC876]">{totalMes}</p>
           <p className="text-[11px] text-white/40 mt-1">Nuevas este mes</p>
         </Glass>
-        <Link href="/seguimiento" className="col-span-6 md:col-span-3">
+        <Link href="/seguimiento" className="col-span-12 sm:col-span-6 md:col-span-3">
           <Glass className="h-full hover:border-white/20 transition-colors">
             <p className="font-serif text-[27px] font-semibold text-[#FF7A6E]">{seguimiento.urgentes}</p>
             <p className="text-[11px] text-white/40 mt-1">Sin respuesta +5 días</p>
@@ -399,7 +399,7 @@ export function DashboardClient({
         {/* ESTADOS */}
         <Glass className="col-span-12 md:col-span-5">
           <h3 className="font-serif text-[15px] font-semibold text-white mb-3">Estados</h3>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {[
               { key: "pendiente", label: "Pendientes", icon: <IconClock size={15} />, color: ESTADO_COLORS.pendiente, count: stats.pendingCount, sum: stats.estadosSuma.pendiente },
               { key: "aprobada", label: "Aprobadas", icon: <IconCheck size={15} />, color: ESTADO_COLORS.aprobada, count: stats.approvedCount, sum: stats.estadosSuma.aprobada },

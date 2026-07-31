@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { themeForPathname } from "@/lib/theme/pageThemes";
@@ -36,6 +37,7 @@ export function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const theme = themeForPathname(pathname);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const segments = pathname.split("/").filter(Boolean);
   const twoSegmentKey = segments.slice(0, 2).join("/");
   const title = PAGE_TITLES[twoSegmentKey] ?? PAGE_TITLES[segments[0] ?? "dashboard"] ?? "Fortress8";
@@ -55,9 +57,8 @@ export function AppShell({
 
   return (
     <div
-      className="min-h-screen grid"
+      className="min-h-screen grid grid-cols-1 md:grid-cols-[56px_1fr]"
       style={{
-        gridTemplateColumns: "56px 1fr",
         gridTemplateRows: "54px 1fr",
         background: theme.bg,
         // Exposed as CSS custom properties so any descendant (sidebar,
@@ -85,7 +86,12 @@ export function AppShell({
         style={{ width: 320, height: 320, top: "40%", left: "40%", filter: "blur(100px)", opacity: 0.80, background: `radial-gradient(circle, #FFC876 0%, transparent 70%)`, zIndex: 0 }}
       />
 
-      <Sidebar isAdmin={role === "admin"} onLogout={handleLogout} />
+      <Sidebar
+        isAdmin={role === "admin"}
+        onLogout={handleLogout}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
+      />
       <Topbar
         title={title}
         userEmail={userEmail}
@@ -93,10 +99,11 @@ export function AppShell({
         userInitials={initialsFrom(userName, userEmail)}
         role={role}
         onLogout={handleLogout}
+        onOpenMobileNav={() => setMobileNavOpen(true)}
       />
       <main
-        className="overflow-y-auto relative"
-        style={{ gridColumn: "2 / -1", gridRow: "2 / -1", zIndex: 1 }}
+        className="overflow-y-auto relative col-span-1 md:col-start-2"
+        style={{ gridRow: "2 / -1", zIndex: 1 }}
       >
         {children}
       </main>

@@ -990,7 +990,7 @@ export default function CotizacionForm({
           ) : (
             <button
               onClick={() => setShowPriceList((v) => !v)}
-              className="bg-white/10 border border-white/15 hover:bg-white/15 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+              className="hidden md:flex bg-white/10 border border-white/15 hover:bg-white/15 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors items-center gap-1.5"
             >
               <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -1068,8 +1068,12 @@ export default function CotizacionForm({
       <div className="flex flex-1 pt-6 pb-10 gap-0 justify-center print:pt-0 print:block">
         {/* Panel de lista de precios */}
         {showPriceList && !readOnly && (
+          // Hidden below md regardless of showPriceList -- a permanent 300px
+          // side panel plus the 794px sheet has nowhere to fit on a phone;
+          // mobile just gets the sheet, scrollable/zoomable on its own (see
+          // the "Lista" toggle button, itself hidden below md too).
           <div
-            className="print:hidden sticky self-start"
+            className="print:hidden hidden md:block sticky self-start"
             style={{ top: 96, height: "calc(100vh - 96px)", width: 300, flexShrink: 0 }}
           >
             <PriceListPanel

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { IconUser, IconBellRinging, IconPlus } from "@tabler/icons-react";
+import { IconUser, IconBellRinging, IconPlus, IconMenu2 } from "@tabler/icons-react";
 import { NotificationBell } from "./NotificationBell";
 
 export function Topbar({
@@ -12,6 +12,7 @@ export function Topbar({
   userInitials,
   role,
   onLogout,
+  onOpenMobileNav,
 }: {
   title: string;
   userEmail: string;
@@ -19,6 +20,7 @@ export function Topbar({
   userInitials: string;
   role: "admin" | "vendedor";
   onLogout: () => void;
+  onOpenMobileNav: () => void;
 }) {
   const [rate, setRate] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,10 +49,17 @@ export function Topbar({
       }}
     >
       <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={onOpenMobileNav}
+          className="md:hidden -ml-1 flex items-center justify-center w-8 h-8 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+          title="Abrir menú"
+        >
+          <IconMenu2 size={18} />
+        </button>
         {/* eslint-disable-next-line @next/next/no-img-element -- plain <img>, bypasses the
             Next.js image-optimizer route entirely so a stale cached rendition can't get stuck */}
         <img src="/logo-icon.png" alt="Fortress8" width={30} height={30} className="shrink-0 rounded" />
-        <span className="font-serif text-[15px] font-semibold text-white tracking-wide shrink-0">
+        <span className="hidden sm:inline font-serif text-[15px] font-semibold text-white tracking-wide shrink-0">
           FORTRESS<span style={{ color: "var(--shell-accent, #F57B02)", fontStyle: "italic" }}>8</span>
         </span>
         {rate && (
@@ -120,10 +129,11 @@ export function Topbar({
 
         <Link
           href="/cotizaciones/nueva"
-          className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-4 py-2 text-[#1a0d04] shrink-0 transition-transform hover:-translate-y-0.5"
+          title="Nueva cotización"
+          className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 sm:px-4 py-2 text-[#1a0d04] shrink-0 transition-transform hover:-translate-y-0.5"
           style={{ background: "linear-gradient(135deg, var(--shell-accent, #F57B02), var(--shell-accent2, #E2471B))" }}
         >
-          <IconPlus size={14} /> Nueva
+          <IconPlus size={14} /> <span className="hidden sm:inline">Nueva</span>
         </Link>
       </div>
     </header>

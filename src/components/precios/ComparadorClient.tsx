@@ -143,8 +143,8 @@ export function ComparadorClient({
               />
             </div>
 
-            <div className="max-h-96 overflow-y-auto rounded-lg border border-white/5">
-              <table className="w-full text-xs">
+            <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-white/5">
+              <table className="w-full min-w-[520px] text-xs">
                 <thead className="sticky top-0 bg-black/60 backdrop-blur">
                   <tr className="text-white/40">
                     <th className="text-left px-3 py-2">SKU</th>
