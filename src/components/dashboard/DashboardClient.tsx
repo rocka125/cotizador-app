@@ -107,6 +107,55 @@ function useMountedAfter(delayMs: number) {
   return mounted;
 }
 
+// Derives the calendar dots + evolution-chart series for whichever month is
+// being viewed, from the full per-quote timeline sent by the server. Current
+// month stops at "today" (matches historical behavior); past months show the
+// full month since they're already complete.
+function computeMonthView(
+  quotes: { created_at: string; estado: string }[],
+  viewedMonth: Date,
+  today: Date
+) {
+  const year = viewedMonth.getFullYear();
+  const month = viewedMonth.getMonth();
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const nDias = isCurrentMonth ? today.getDate() : daysInMonth;
+
+  const waveLabels: string[] = [];
+  const wavePendientes: number[] = [];
+  const waveAprobadas: number[] = [];
+  const waveRechazadas: number[] = [];
+  for (let i = 0; i < nDias; i++) {
+    const day = new Date(year, month, i + 1);
+    waveLabels.push(day.toLocaleDateString("es-MX", { day: "numeric", month: "short" }));
+    wavePendientes.push(0);
+    waveAprobadas.push(0);
+    waveRechazadas.push(0);
+  }
+
+  const calendarioMes: Record<number, number> = {};
+  for (const q of quotes) {
+    const d = new Date(q.created_at);
+    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+    const dayNum = d.getDate();
+    calendarioMes[dayNum] = (calendarioMes[dayNum] ?? 0) + 1;
+    const dayIndex = dayNum - 1;
+    if (dayIndex < nDias) {
+      if (q.estado === "pendiente") wavePendientes[dayIndex]++;
+      else if (q.estado === "aprobada") waveAprobadas[dayIndex]++;
+      else if (q.estado === "rechazada") waveRechazadas[dayIndex]++;
+    }
+  }
+
+  return {
+    wave: { labels: waveLabels, pendientes: wavePendientes, aprobadas: waveAprobadas, rechazadas: waveRechazadas },
+    calendarioMes,
+    daysInMonth,
+    isCurrentMonth,
+  };
+}
+
 function initials(name: string) {
   const parts = name.trim().split(/\s+/);
   if (!parts[0]) return "—";
@@ -199,8 +248,25 @@ export function DashboardClient({
 }) {
   const [exchangeRate, setExchangeRate] = useState<{ MXN: number; EUR: number; live: boolean } | null>(null);
   const [search, setSearch] = useState("");
+  const [viewedMonth, setViewedMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
   const animatedTotal = useCountUp(stats.totalAmountUsd);
   const reducedMotion = usePrefersReducedMotion();
+
+  const monthView = useMemo(
+    () => computeMonthView(stats.quotesTimeline, viewedMonth, new Date()),
+    [stats.quotesTimeline, viewedMonth]
+  );
+
+  function goToPrevMonth() {
+    setViewedMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  }
+  function goToNextMonth() {
+    if (monthView.isCurrentMonth) return;
+    setViewedMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  }
 
   useEffect(() => {
     fetch("/api/exchange-rate")
@@ -220,11 +286,11 @@ export function DashboardClient({
   const animUrgentes = useCountUp(seguimiento.urgentes, 600);
 
   const evolutionData = {
-    labels: stats.wave.labels,
+    labels: monthView.wave.labels,
     datasets: [
       {
         label: "Pendientes",
-        data: stats.wave.pendientes,
+        data: monthView.wave.pendientes,
         borderColor: ESTADO_COLORS.pendiente,
         backgroundColor: "rgba(255,200,118,0.18)",
         pointRadius: 0,
@@ -235,7 +301,7 @@ export function DashboardClient({
       },
       {
         label: "Aprobadas",
-        data: stats.wave.aprobadas,
+        data: monthView.wave.aprobadas,
         borderColor: ESTADO_COLORS.aprobada,
         backgroundColor: "rgba(143,227,166,0.16)",
         pointRadius: 0,
@@ -246,7 +312,7 @@ export function DashboardClient({
       },
       {
         label: "Rechazadas",
-        data: stats.wave.rechazadas,
+        data: monthView.wave.rechazadas,
         borderColor: ESTADO_COLORS.rechazada,
         backgroundColor: "rgba(255,122,110,0.16)",
         pointRadius: 0,
@@ -257,9 +323,9 @@ export function DashboardClient({
       },
     ],
   };
-  const rangoActual = stats.wave.labels.length
-    ? `${stats.wave.labels[0]} – ${stats.wave.labels.at(-1)}`
-    : "";
+  // Same month label as the calendar header, so both widgets read as one
+  // synced view instead of the chart quietly showing a different range.
+  const rangoActual = viewedMonth.toLocaleDateString("es-MX", { month: "long", year: "numeric" });
 
   const pctPend = stats.totalQuotes > 0 ? Math.round((stats.pendingCount / stats.totalQuotes) * 100) : 0;
   const pctAprob = stats.totalQuotes > 0 ? Math.round((stats.approvedCount / stats.totalQuotes) * 100) : 0;
@@ -274,8 +340,8 @@ export function DashboardClient({
   }, [search, stats.recentQuotes]);
 
   const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const firstOfMonth = viewedMonth;
+  const daysInMonth = monthView.daysInMonth;
   const startWeekday = (firstOfMonth.getDay() + 6) % 7; // Monday-first
   const maxTop = Math.max(1, ...stats.topProductos.map((p) => p.count));
 
@@ -317,7 +383,7 @@ export function DashboardClient({
         <Glass className="col-span-12 md:col-span-7">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-serif text-[15px] font-semibold text-white">Evolución de cotizaciones</h3>
-            <span className="text-[11px] text-white/30">{rangoActual}</span>
+            <span className="text-[11px] text-white/30 capitalize">{rangoActual}</span>
           </div>
           <div style={{ height: 190 }}>
             <Line
@@ -472,9 +538,26 @@ export function DashboardClient({
         {/* CALENDARIO */}
         <Glass className="col-span-12 md:col-span-3">
           <div className="flex items-center justify-between mb-3">
-            <IconChevronLeft size={14} className="text-white/30" />
-            <span className="text-[11.5px] font-semibold text-white">{now.toLocaleDateString("es-MX", { month: "long", year: "numeric" })}</span>
-            <IconChevronRight size={14} className="text-white/30" />
+            <button
+              type="button"
+              onClick={goToPrevMonth}
+              aria-label="Mes anterior"
+              className="p-1 -m-1 rounded-md text-white/40 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <IconChevronLeft size={14} />
+            </button>
+            <span className="text-[11.5px] font-semibold text-white capitalize">
+              {viewedMonth.toLocaleDateString("es-MX", { month: "long", year: "numeric" })}
+            </span>
+            <button
+              type="button"
+              onClick={goToNextMonth}
+              disabled={monthView.isCurrentMonth}
+              aria-label="Mes siguiente"
+              className="p-1 -m-1 rounded-md text-white/40 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-white/40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <IconChevronRight size={14} />
+            </button>
           </div>
           <div className="grid grid-cols-7 gap-1 text-center">
             {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
@@ -485,8 +568,8 @@ export function DashboardClient({
             ))}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const day = i + 1;
-              const isToday = day === now.getDate();
-              const count = stats.calendarioMes[day] ?? 0;
+              const isToday = monthView.isCurrentMonth && day === now.getDate();
+              const count = monthView.calendarioMes[day] ?? 0;
               return (
                 <div
                   key={day}
@@ -558,33 +641,7 @@ export function DashboardClient({
               ))}
             </div>
           )}
-        </Glass>
-
-        {/* PRÓXIMAS A VENCER */}
-        <Glass className="col-span-12">
-          <h3 className="font-serif text-[15px] font-semibold text-white mb-3">Próximas a vencer (7 días)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
-            {stats.proximasAVencer.length === 0 && <p className="text-white/30 text-sm">Ninguna por ahora.</p>}
-            {stats.proximasAVencer.map((q) => (
-              <Link
-                key={q.id}
-                href={`/cotizaciones/${q.id}/ver`}
-                className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
-              >
-                <p className="text-sm text-white truncate">{q.cliente_empresa || q.numero_cotizacion}</p>
-                <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ml-2${q.diasRestantes === 0 ? " pulse-badge" : ""}`}
-                  style={{
-                    background: q.diasRestantes <= 2 ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)",
-                    color: q.diasRestantes <= 2 ? "#ef4444" : "#f59e0b",
-                  }}
-                >
-                  {q.diasRestantes === 0 ? "Vence hoy" : `${q.diasRestantes}d`}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </Glass>
+        </Glass>  
       </div>
     </div>
   );

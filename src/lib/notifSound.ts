@@ -74,7 +74,8 @@ export type NotifTipo =
   | "email_abierto"
   | "nota_ajena"
   | "urgente"
-  | "vigencia";
+  | "vigencia"
+  | "mensaje";
 
 const SOUNDS: Record<NotifTipo, Note[]> = {
   // Dos notas ascendentes, cálido -- algo nuevo se creó.
@@ -116,6 +117,11 @@ const SOUNDS: Record<NotifTipo, Note[]> = {
   vigencia: [
     { freq: 698.46, start: 0, dur: 0.22, gain: 0.13 },
     { freq: 523.25, start: 0.18, dur: 0.26, gain: 0.15 },
+  ],
+  // Tercera mayor cálida, tipo "mensaje de texto" -- un admin te escribió.
+  mensaje: [
+    { freq: 523.25, start: 0, dur: 0.1, type: "triangle", gain: 0.16 },
+    { freq: 659.25, start: 0.09, dur: 0.18, type: "triangle", gain: 0.18 },
   ],
 };
 

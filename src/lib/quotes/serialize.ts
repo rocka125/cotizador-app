@@ -55,6 +55,7 @@ export interface QuoteFormState {
   atencion: string;
   clientePuesto: string;
   clienteEmpresa: string;
+  clienteTelefono: string;
   empresa: EmpresaInfo;
   vigenciaDias: string;
   monedaCode: MonedaCode;
@@ -85,6 +86,7 @@ export interface QuoteRow {
   cliente_atencion: string | null;
   cliente_puesto: string | null;
   cliente_empresa: string | null;
+  cliente_telefono: string | null;
   empresa_nombre: string | null;
   empresa_rfc: string | null;
   empresa_direccion: string | null;
@@ -124,6 +126,7 @@ export function quoteRowToFormState(row: QuoteRow): QuoteFormState {
     atencion: row.cliente_atencion ?? "",
     clientePuesto: row.cliente_puesto ?? "",
     clienteEmpresa: row.cliente_empresa ?? "",
+    clienteTelefono: row.cliente_telefono ?? "",
     empresa: {
       nombre: row.empresa_nombre ?? "Fortress8 Cibersecurity Services SA de CV",
       rfc: row.empresa_rfc ?? "FCS180507LBA",
@@ -166,6 +169,7 @@ export function payloadToDbColumns(payload: QuoteSavePayload) {
     cliente_atencion: payload.atencion,
     cliente_puesto: payload.clientePuesto,
     cliente_empresa: payload.clienteEmpresa,
+    cliente_telefono: payload.clienteTelefono || null,
     cliente_nombre: payload.atencion,
     empresa_nombre: payload.empresa.nombre,
     empresa_rfc: payload.empresa.rfc,

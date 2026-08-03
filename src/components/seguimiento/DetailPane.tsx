@@ -15,6 +15,15 @@ const TIPO_ICON: Record<string, React.ComponentType<{ size?: number }>> = {
   apertura_email: IconEye,
 };
 
+// wa.me needs a bare country-code-prefixed number, no spaces/dashes/+. Local
+// 10-digit MX numbers (the vast majority here) have no country code typed
+// in, so assume 52 (Mexico) when that's the digit count -- anything longer
+// is left alone since it likely already includes one.
+function toWhatsAppNumber(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  return digits.length === 10 ? `52${digits}` : digits;
+}
+
 interface ProfileLite {
   id: string;
   nombre: string | null;
@@ -35,6 +44,7 @@ export function DetailPane({
   const [descripcion, setDescripcion] = useState("");
   const [tipo, setTipo] = useState<"llamada" | "email" | "visita" | "whatsapp" | "nota">("nota");
   const [error, setError] = useState<string | null>(null);
+  const phone = quote.cliente_telefono?.trim() || "";
 
   function submitLog(t: typeof tipo, desc: string) {
     setError(null);
@@ -73,6 +83,7 @@ export function DetailPane({
         <div>
           <p className="text-xs font-mono text-white/40">{quote.numero_cotizacion}</p>
           <h2 className="text-lg font-serif italic text-white">{quote.cliente_empresa || "—"}</h2>
+          {phone && <p className="text-[11px] text-white/40">{phone}</p>}
         </div>
         <div className="flex gap-2">
           <Link href={`/cotizaciones/${quote.id}/ver`} className="text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white">
@@ -89,8 +100,12 @@ export function DetailPane({
         </div>
       </div>
 
-      {/* Quick log buttons */}
-      <div className="flex gap-2 mb-4">
+      {/* Quick actions -- when the client has a phone on file, WhatsApp opens
+          a pre-written message and logs the contact at the same time.
+          Without a phone it falls back to just logging the old fixed-text
+          note. "Sin respuesta" is always just a log -- no real call action. */}
+      <div className="mb-4">
+      <div className="flex gap-2 mb-1.5">
         <button
           disabled={pending}
           onClick={() => submitLog("llamada", "Llamada sin respuesta")}
@@ -98,13 +113,33 @@ export function DetailPane({
         >
           <IconPhone size={14} /> Sin respuesta
         </button>
-        <button
-          disabled={pending}
-          onClick={() => submitLog("whatsapp", "WhatsApp pendiente de respuesta")}
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70"
-        >
-          <IconBrandWhatsapp size={14} /> WA pendiente
-        </button>
+        {phone ? (
+          <a
+            href={`https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(
+              `Hola, te contacto sobre tu cotización ${quote.numero_cotizacion}${quote.cliente_empresa ? ` (${quote.cliente_empresa})` : ""}. ¿Tuviste oportunidad de revisarla?`
+            )}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => submitLog("whatsapp", "WhatsApp enviado")}
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400"
+          >
+            <IconBrandWhatsapp size={14} /> WhatsApp
+          </a>
+        ) : (
+          <button
+            disabled={pending}
+            onClick={() => submitLog("whatsapp", "WhatsApp pendiente de respuesta")}
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70"
+          >
+            <IconBrandWhatsapp size={14} /> WA pendiente
+          </button>
+        )}
+      </div>
+      {!phone && (
+        <p className="text-[10.5px] text-white/30">
+          Agrega el teléfono del cliente en la cotización para escribir por WhatsApp directo desde aquí.
+        </p>
+      )}
       </div>
 
       {/* Manual entry */}

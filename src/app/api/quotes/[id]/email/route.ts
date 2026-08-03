@@ -26,6 +26,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const quote = await getQuoteById(id); // RLS-scoped
   if (!quote) return NextResponse.json({ error: "Cotización no encontrada" }, { status: 404 });
+  if (quote.estado !== "aprobada") {
+    return NextResponse.json({ error: "Solo se pueden enviar cotizaciones aprobadas" }, { status: 400 });
+  }
 
   const { to, cc, mensaje } = (await request.json()) as { to: string; cc?: string[]; mensaje?: string };
   if (!to?.trim() || !to.includes("@")) {

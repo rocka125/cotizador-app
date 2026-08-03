@@ -49,5 +49,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Excludes Next internals plus any request for a static file in /public
+  // (images, icons, fonts, ...) -- these have no session to check and were
+  // being redirected to /login instead of served, breaking e.g. the login
+  // page's own logo.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif|ttf|woff|woff2)$).*)"],
 };

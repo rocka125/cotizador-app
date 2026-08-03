@@ -34,6 +34,7 @@ const TIPO_TITLES: Record<string, string> = {
   nota_ajena: "📝 Nueva nota",
   urgente: "⏰ Cotización urgente",
   vigencia: "📅 Cotización por vencer",
+  mensaje: "💬 Mensaje del administrador",
 };
 
 export function showDesktopNotification(params: { tipo: string | null; mensaje: string; onClick?: () => void }) {

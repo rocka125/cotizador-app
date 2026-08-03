@@ -12,6 +12,7 @@ import { MONEDA_LABELS } from "@/lib/quotes/types";
 import { computeTotals, parseMoneyInput as parseMXN, formatMXN } from "@/lib/quotes/totals";
 import type { QuoteFormState, QuoteSavePayload } from "@/lib/quotes/serialize";
 import { EmailModal } from "@/components/quotes/EmailModal";
+import { MessageVendorModal } from "@/components/quotes/MessageVendorModal";
 
 export type { PriceItem };
 
@@ -546,26 +547,35 @@ function AdminPanel({
   setMensaje: (m: string) => void;
 }) {
   return (
-    <div className="print:hidden fixed top-4 left-4 z-50 bg-white border border-gray-300 rounded-xl shadow-lg p-4 w-72">
-      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Panel de administrador</p>
-      <label className="block text-xs text-gray-600 mb-1">Estado</label>
-      <select
-        value={estado}
-        onChange={(e) => setEstado(e.target.value as EstadoCotizacion)}
-        className="w-full mb-3 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900"
-      >
-        <option value="pendiente">Pendiente</option>
-        <option value="aprobada">Aprobada</option>
-        <option value="rechazada">Rechazada</option>
-      </select>
-      <label className="block text-xs text-gray-600 mb-1">Mensaje para el dueño (opcional)</label>
-      <textarea
-        value={mensaje}
-        onChange={(e) => setMensaje(e.target.value)}
-        rows={2}
-        placeholder="Ej. Ajusta el descuento antes de enviarla…"
-        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-gray-900 resize-none"
-      />
+    <div
+      className="print:hidden rounded-2xl border p-4"
+      style={{ background: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.08)" }}
+    >
+      <p className="text-[11px] font-bold text-white/40 uppercase tracking-wide mb-3">Panel de administrador</p>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="sm:w-44 shrink-0">
+          <label className="block text-[11px] text-white/50 mb-1">Estado</label>
+          <select
+            value={estado}
+            onChange={(e) => setEstado(e.target.value as EstadoCotizacion)}
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-[#D95A00] transition-colors"
+          >
+            <option value="pendiente">Pendiente</option>
+            <option value="aprobada">Aprobada</option>
+            <option value="rechazada">Rechazada</option>
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="block text-[11px] text-white/50 mb-1">Mensaje para el dueño (opcional)</label>
+          <textarea
+            value={mensaje}
+            onChange={(e) => setMensaje(e.target.value)}
+            rows={2}
+            placeholder="Ej. Ajusta el descuento antes de enviarla…"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white resize-none outline-none focus:border-[#D95A00] transition-colors placeholder:text-white/25"
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -644,6 +654,7 @@ export default function CotizacionForm({
   const [atencion, setAtencion] = useState(initial?.atencion ?? "");
   const [clientePuesto, setClientePuesto] = useState(initial?.clientePuesto ?? "");
   const [clienteEmpresa, setClienteEmpresa] = useState(initial?.clienteEmpresa ?? "");
+  const [clienteTelefono, setClienteTelefono] = useState(initial?.clienteTelefono ?? "");
 
   // ── Líneas de cotización ──
   const [items, setItems] = useState<LineItem[]>(
@@ -670,6 +681,7 @@ export default function CotizacionForm({
   const [savedNumero, setSavedNumero] = useState<string | null>(null);
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
   const [estado, setEstado] = useState<EstadoCotizacion>(initialEstado);
   const [mensajeAdmin, setMensajeAdmin] = useState("");
 
@@ -840,6 +852,7 @@ export default function CotizacionForm({
         atencion,
         clientePuesto,
         clienteEmpresa,
+        clienteTelefono,
         empresa,
         vigenciaDias,
         monedaCode,
@@ -943,9 +956,6 @@ export default function CotizacionForm({
 
   return (
     <div className="bg-black min-h-screen flex flex-col">
-      {isAdmin && isForeignQuote && !readOnly && (
-        <AdminPanel estado={estado} setEstado={setEstado} mensaje={mensajeAdmin} setMensaje={setMensajeAdmin} />
-      )}
       {savedNumero && (
         <SuccessModal
           numeroCotizacion={savedNumero}
@@ -1023,7 +1033,7 @@ export default function CotizacionForm({
             </svg>
             Exportar PDF
           </button>
-          {quoteId && (
+          {quoteId && estado === "aprobada" && (
             <button
               onClick={() => setShowEmailModal(true)}
               className="bg-white/10 border border-white/15 hover:bg-white/15 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
@@ -1032,6 +1042,17 @@ export default function CotizacionForm({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
               Correo
+            </button>
+          )}
+          {isAdmin && isForeignQuote && quoteId && (
+            <button
+              onClick={() => setShowMessageModal(true)}
+              className="bg-white/10 border border-white/15 hover:bg-white/15 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              Mensaje
             </button>
           )}
         </div>
@@ -1050,6 +1071,10 @@ export default function CotizacionForm({
 
       {quoteId && showEmailModal && (
         <EmailModal quoteId={quoteId} onClose={() => setShowEmailModal(false)} />
+      )}
+
+      {quoteId && showMessageModal && (
+        <MessageVendorModal quoteId={quoteId} onClose={() => setShowMessageModal(false)} />
       )}
 
       {saveError && (
@@ -1086,7 +1111,49 @@ export default function CotizacionForm({
         )}
 
         {/* Hoja A4 */}
-        <div className="flex-1 flex justify-center overflow-x-auto px-4">
+        <div className="flex-1 flex flex-col items-center overflow-x-auto px-4">
+          {/* Datos internos -- uso interno del equipo, deliberadamente fuera
+              de la hoja de abajo para que nunca terminen en el PDF que se
+              descarga o se manda por correo al cliente. */}
+          {(!readOnly || clienteTelefono) && (
+            <div className="print:hidden flex flex-col gap-3 mb-5" style={{ width: 794, maxWidth: "100%" }}>
+              {isAdmin && isForeignQuote && !readOnly && (
+                <AdminPanel estado={estado} setEstado={setEstado} mensaje={mensajeAdmin} setMensaje={setMensajeAdmin} />
+              )}
+              {(!readOnly || clienteTelefono) && (
+                <div
+                  className="rounded-2xl border p-4 flex items-center gap-3"
+                  style={{ background: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.08)" }}
+                >
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white/40"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[10.5px] text-white/40 font-semibold uppercase tracking-wide mb-0.5">
+                      Teléfono del cliente <span className="normal-case font-normal text-white/25">· uso interno, no se imprime</span>
+                    </label>
+                    <input
+                      value={clienteTelefono}
+                      onChange={(e) => setClienteTelefono(e.target.value)}
+                      readOnly={readOnly}
+                      placeholder="Ej. 9931234567 — para llamar/WhatsApp desde Seguimiento"
+                      className="w-full bg-transparent text-sm text-white placeholder:text-white/25 outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div
             ref={printRef}
             className="bg-white shadow-2xl"

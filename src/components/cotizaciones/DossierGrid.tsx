@@ -3,9 +3,10 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { IconEye, IconEdit, IconCheck, IconX, IconTrash, IconSearch, IconMail } from "@tabler/icons-react";
+import { IconEye, IconEdit, IconCheck, IconX, IconTrash, IconSearch, IconMail, IconMessage } from "@tabler/icons-react";
 import type { QuoteListItem } from "@/lib/quotes/data";
 import { EmailModal } from "@/components/quotes/EmailModal";
+import { MessageVendorModal } from "@/components/quotes/MessageVendorModal";
 
 interface ProfileLite {
   id: string;
@@ -49,6 +50,7 @@ export function DossierGrid({
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [emailModalId, setEmailModalId] = useState<string | null>(null);
+  const [messageModalId, setMessageModalId] = useState<string | null>(null);
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
   function updateParams(next: Record<string, string | null>) {
@@ -164,6 +166,8 @@ export function DossierGrid({
             const isOwner = q.usuario_id === currentUserId;
             const canDecide = isAdmin && q.estado === "pendiente";
             const canDelete = isAdmin || (isOwner && q.estado === "pendiente");
+            const canSend = q.estado === "aprobada";
+            const canMessage = isAdmin && !isOwner;
             const busy = busyId === q.id;
 
             const removing = removingIds.has(q.id);
@@ -204,13 +208,24 @@ export function DossierGrid({
                   <Link href={`/cotizaciones/${q.id}`} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70" title="Editar">
                     <IconEdit size={16} />
                   </Link>
-                  <button
-                    onClick={() => setEmailModalId(q.id)}
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70"
-                    title="Enviar por correo"
-                  >
-                    <IconMail size={16} />
-                  </button>
+                  {canSend && (
+                    <button
+                      onClick={() => setEmailModalId(q.id)}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70"
+                      title="Enviar por correo"
+                    >
+                      <IconMail size={16} />
+                    </button>
+                  )}
+                  {canMessage && (
+                    <button
+                      onClick={() => setMessageModalId(q.id)}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70"
+                      title="Enviar mensaje al vendedor"
+                    >
+                      <IconMessage size={16} />
+                    </button>
+                  )}
                   {canDecide && (
                     <>
                       <button
@@ -288,6 +303,18 @@ export function DossierGrid({
       )}
 
       {emailModalId && <EmailModal quoteId={emailModalId} onClose={() => setEmailModalId(null)} />}
+
+      {messageModalId && (
+        <MessageVendorModal
+          quoteId={messageModalId}
+          recipientLabel={(() => {
+            const q = quotes.find((r) => r.id === messageModalId);
+            const owner = q ? profilesById[q.usuario_id] : undefined;
+            return owner?.nombre || owner?.email;
+          })()}
+          onClose={() => setMessageModalId(null)}
+        />
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ export async function logAudit(
   supabase: Db,
   actor: Profile,
   params: {
-    accion: "crear" | "editar" | "eliminar" | "cambio_estado" | "enviar_email";
+    accion: "crear" | "editar" | "eliminar" | "cambio_estado" | "enviar_email" | "mensaje";
     quoteId?: string | null;
     numeroCotizacion: string;
     detalle?: Record<string, unknown>;
@@ -59,7 +59,8 @@ export type NotifTipo =
   | "email_abierto"
   | "nota_ajena"
   | "urgente"
-  | "vigencia";
+  | "vigencia"
+  | "mensaje";
 
 // Non-admin created/edited a quote -> notify every admin (except the actor,
 // in case an admin's own account somehow triggers this path).

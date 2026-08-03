@@ -4,7 +4,7 @@ import type { EstadoCotizacion } from "./types";
 
 const QUOTE_COLUMNS = `
   id, numero_cotizacion, usuario_id, fecha,
-  cliente_atencion, cliente_puesto, cliente_empresa,
+  cliente_atencion, cliente_puesto, cliente_empresa, cliente_telefono,
   empresa_nombre, empresa_rfc, empresa_direccion, empresa_web, empresa_email,
   empresa_tel_oficina, empresa_tel_movil,
   vigencia_dias, tiempo_entrega, condiciones_pago, vigencia_servicios, lugar_entrega,
@@ -73,10 +73,9 @@ export interface DashboardStats {
   rejectedCount: number;
   recentQuotes: QuoteListItem[];
   monthlyVolume: { month: string; count: number }[];
-  wave: { labels: string[]; pendientes: number[]; aprobadas: number[]; rechazadas: number[] };
   proximasAVencer: { id: string; numero_cotizacion: string; cliente_empresa: string | null; fecha: string; diasRestantes: number }[];
   estadosSuma: { pendiente: number; aprobada: number; rechazada: number };
-  calendarioMes: Record<number, number>;
+  quotesTimeline: { created_at: string; estado: EstadoCotizacion }[];
   topProductos: { label: string; count: number; total: number }[];
 }
 
@@ -114,32 +113,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const today = new Date();
 
-  // Evolution wave: daily counts by estado, from the 1st of the current
-  // month through today (matches the PHP dashboard's "Evolución" widget).
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const nDias = Math.floor((today.getTime() - firstOfMonth.getTime()) / 86400000) + 1;
-  const waveLabels: string[] = [];
-  const wavePendientes: number[] = [];
-  const waveAprobadas: number[] = [];
-  const waveRechazadas: number[] = [];
-  for (let i = 0; i < nDias; i++) {
-    const day = new Date(firstOfMonth.getTime() + i * 86400000);
-    waveLabels.push(day.toLocaleDateString("es-MX", { day: "numeric", month: "short" }));
-    wavePendientes.push(0);
-    waveAprobadas.push(0);
-    waveRechazadas.push(0);
-  }
-  for (const r of rows) {
-    const d = new Date(r.created_at);
-    if (d < firstOfMonth || d > today) continue;
-    const dayIndex = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - firstOfMonth.getTime()) / 86400000);
-    if (dayIndex < 0 || dayIndex >= nDias) continue;
-    const estado: string = r.estado;
-    if (estado === "pendiente") wavePendientes[dayIndex]++;
-    else if (estado === "aprobada") waveAprobadas[dayIndex]++;
-    else if (estado === "rechazada") waveRechazadas[dayIndex]++;
-  }
-  const wave = { labels: waveLabels, pendientes: wavePendientes, aprobadas: waveAprobadas, rechazadas: waveRechazadas };
+  // Lightweight per-quote timeline (created_at + estado) so the client can
+  // derive the "Evolución" chart and calendar dots for whichever month the
+  // user has navigated to, without another round-trip per month switch.
+  const quotesTimeline = rows.map((r) => ({ created_at: r.created_at, estado: r.estado as EstadoCotizacion }));
+
   const proximasAVencer = rows
     .filter((r) => r.estado === "pendiente" && r.vigencia_dias)
     .map((r) => {
@@ -156,15 +134,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     const estado: string = r.estado;
     if (estado === "pendiente" || estado === "aprobada" || estado === "rechazada") {
       estadosSuma[estado] += r.moneda_code === "USD" ? Number(r.total) : 0;
-    }
-  }
-
-  // Calendar dots: quotes created this calendar month, grouped by day-of-month.
-  const calendarioMes: Record<number, number> = {};
-  for (const r of rows) {
-    const d = new Date(r.created_at);
-    if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()) {
-      calendarioMes[d.getDate()] = (calendarioMes[d.getDate()] ?? 0) + 1;
     }
   }
 
@@ -194,10 +163,9 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     rejectedCount: rows.filter((r) => r.estado === "rechazada").length,
     recentQuotes: rows.slice(0, 8) as unknown as QuoteListItem[],
     monthlyVolume,
-    wave,
     proximasAVencer,
     estadosSuma,
-    calendarioMes,
+    quotesTimeline,
     topProductos,
   };
 }
@@ -206,6 +174,7 @@ export interface SeguimientoBoardItem {
   id: string;
   numero_cotizacion: string;
   cliente_empresa: string | null;
+  cliente_telefono: string | null;
   usuario_id: string;
   estado: EstadoCotizacion;
   total: string;
@@ -225,7 +194,7 @@ export async function listSeguimientoBoard(filtro: SeguimientoFilter = "activas"
   let query = supabase
     .from("quotes")
     .select(
-      "id, numero_cotizacion, cliente_empresa, usuario_id, estado, total, moneda_code, seguimiento_oculto, email_token, email_opened_at, created_at"
+      "id, numero_cotizacion, cliente_empresa, cliente_telefono, usuario_id, estado, total, moneda_code, seguimiento_oculto, email_token, email_opened_at, created_at"
     )
     .order("created_at", { ascending: false });
 

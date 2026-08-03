@@ -28,12 +28,16 @@ export async function POST(request: Request) {
 
   const columns = payloadToDbColumns(payload);
 
+  // Admins approve their own work by creating it -- only vendedor-created
+  // quotes go through the pendiente review step.
+  const estadoInicial = profile.role === "admin" ? "aprobada" : "pendiente";
+
   const { data: inserted, error } = await supabase
     .from("quotes")
     .insert({
       numero_cotizacion: numero,
       usuario_id: profile.id,
-      estado: "pendiente", // new quotes always start pendiente, regardless of payload
+      estado: estadoInicial, // regardless of payload
       ...columns,
     })
     .select("id, numero_cotizacion")
@@ -47,7 +51,7 @@ export async function POST(request: Request) {
     accion: "crear",
     quoteId: inserted.id,
     numeroCotizacion: inserted.numero_cotizacion,
-    detalle: { cliente: payload.clienteEmpresa, total: columns.total, estado: "pendiente" },
+    detalle: { cliente: payload.clienteEmpresa, total: columns.total, estado: estadoInicial },
   });
   await logFollowup(supabase, profile, {
     quoteId: inserted.id,
