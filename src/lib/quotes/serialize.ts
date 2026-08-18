@@ -6,7 +6,7 @@
 // supabase/migrations/0013_import_legacy_data.sql): each item is
 // {sku, descripcion, unidad, cantidad, precio_unitario, descuento, extendido, subtotal}.
 
-import type { LineItem, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "./types";
+import type { LineItem, LineItemTerm, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "./types";
 import { computeTotals } from "./totals";
 
 export interface DbLineItem {
@@ -18,6 +18,11 @@ export interface DbLineItem {
   descuento: number;
   extendido: number;
   subtotal: number;
+  // Same optional term-pricing metadata as LineItem (see types.ts) -- kept
+  // in the items jsonb blob so the "Plazo" selector survives a save/reload
+  // instead of only working for the rest of the current editing session.
+  terminos?: LineItemTerm[];
+  plazo_anios?: LineItemTerm["anios"] | null;
 }
 
 export function itemsToDb(items: LineItem[], ivaActivo: boolean, ivaPercent: string): DbLineItem[] {
@@ -33,6 +38,8 @@ export function itemsToDb(items: LineItem[], ivaActivo: boolean, ivaPercent: str
       descuento: Number(r.descuento) || 0,
       extendido: r.extendido,
       subtotal: r.subtotal,
+      ...(r.terminos ? { terminos: r.terminos } : {}),
+      ...(r.plazoAnios !== undefined ? { plazo_anios: r.plazoAnios } : {}),
     }));
 }
 
@@ -48,6 +55,8 @@ export function itemsFromDb(items: DbLineItem[] | null | undefined): LineItem[] 
     descripcion: it.descripcion ?? "",
     precioUnitario: String(it.precio_unitario ?? ""),
     descuento: String(it.descuento ?? ""),
+    ...(it.terminos ? { terminos: it.terminos } : {}),
+    ...(it.plazo_anios !== undefined ? { plazoAnios: it.plazo_anios } : {}),
   }));
 }
 

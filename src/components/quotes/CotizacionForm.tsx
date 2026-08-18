@@ -7,9 +7,10 @@ import { useRouter } from "next/navigation";
 import { useReactToPrint } from "react-to-print";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import type { PriceItem, LineItem, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "@/lib/quotes/types";
+import type { PriceItem, LineItem, LineItemTerm, Condiciones, EmpresaInfo, FirmaInfo, MonedaCode, EstadoCotizacion } from "@/lib/quotes/types";
 import { MONEDA_LABELS } from "@/lib/quotes/types";
 import { computeTotals, parseMoneyInput as parseMXN, formatMXN } from "@/lib/quotes/totals";
+import { matchesProductQuery } from "@/lib/priceList/searchProducts";
 import type { QuoteFormState, QuoteSavePayload } from "@/lib/quotes/serialize";
 import { EmailModal } from "@/components/quotes/EmailModal";
 import { MessageVendorModal } from "@/components/quotes/MessageVendorModal";
@@ -27,13 +28,40 @@ function usePriceList() {
     // PostgREST caps a plain .select() at 1000 rows silently -- the real
     // catalog runs ~10k+ SKUs, so this must page through fetchAllRows or the
     // product picker only ever shows a fraction of the price list.
-    fetchAllRows<{ categoria: string; sku: string; descripcion: string; precio: number }>(
+    fetchAllRows<{
+      categoria: string;
+      sku: string;
+      descripcion: string;
+      unit_name: string | null;
+      precio: number | null;
+      precio_1yr: number | null;
+      precio_2yr: number | null;
+      precio_3yr: number | null;
+      precio_4yr: number | null;
+      precio_5yr: number | null;
+    }>(
       supabase,
       "active_price_list",
-      "categoria, sku, descripcion, precio"
+      "categoria, sku, descripcion, unit_name, precio, precio_1yr, precio_2yr, precio_3yr, precio_4yr, precio_5yr"
     )
       .then((data) => {
-        setPrices(data.map((d) => ({ sheet: d.categoria, sku: d.sku, desc: d.descripcion, price: Number(d.precio) })));
+        setPrices(
+          data.map((d) => ({
+            sheet: d.categoria,
+            sku: d.sku,
+            desc: d.descripcion,
+            unitName: d.unit_name ?? "",
+            // Flat price when the SKU has one (hardware); otherwise a
+            // term-only SKU (a FortiCare/FortiGuard bundle) falls back to
+            // its cheapest-term price so "+" always adds a usable number.
+            price: Number(d.precio ?? d.precio_1yr ?? d.precio_2yr ?? d.precio_3yr ?? d.precio_4yr ?? d.precio_5yr ?? 0),
+            precio1yr: d.precio_1yr,
+            precio2yr: d.precio_2yr,
+            precio3yr: d.precio_3yr,
+            precio4yr: d.precio_4yr,
+            precio5yr: d.precio_5yr,
+          }))
+        );
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Error al cargar precios"))
       .finally(() => setLoading(false));
@@ -50,10 +78,38 @@ let nextId = 2;
 function convertItemPrices(prevItems: LineItem[], oldRate: number, newRate: number): LineItem[] {
   if (oldRate === newRate) return prevItems;
   return prevItems.map((it) => {
+    // Rescale the term breakdown too (if any) -- otherwise after a currency
+    // switch the Plazo selector would keep offering stale USD-scale prices
+    // while precioUnitario itself correctly moved to the new currency.
+    const terminos = it.terminos?.map((t) => ({ ...t, precio: Math.round(((t.precio / oldRate) * newRate) * 100) / 100 }));
     const n = parseFloat(it.precioUnitario.replace(/[^0-9.]/g, "")) || 0;
-    if (!n) return it;
-    return { ...it, precioUnitario: ((n / oldRate) * newRate).toFixed(2) };
+    if (!n) return terminos ? { ...it, terminos } : it;
+    return { ...it, precioUnitario: ((n / oldRate) * newRate).toFixed(2), ...(terminos ? { terminos } : {}) };
   });
+}
+
+// Builds the 1-5yr contract-term breakdown for a price-list item (already
+// converted to the quote's current currency), plus which term `price`
+// (PriceItem.price, computed by usePriceList's own fallback chain) actually
+// corresponds to. Returns undefined/null when the SKU only has a flat price
+// -- no point showing a one-option "Plazo" selector.
+function buildTerminos(item: PriceItem, rate: number): { terminos: LineItemTerm[] | undefined; plazoAnios: LineItemTerm["anios"] | null } {
+  const pairs: [LineItemTerm["anios"], number | null][] = [
+    [1, item.precio1yr],
+    [2, item.precio2yr],
+    [3, item.precio3yr],
+    [4, item.precio4yr],
+    [5, item.precio5yr],
+  ];
+  const terminos = pairs
+    .filter((p): p is [LineItemTerm["anios"], number] => p[1] != null)
+    .map(([anios, precioUsd]) => ({ anios, precio: Math.round(precioUsd * rate * 100) / 100 }));
+
+  if (terminos.length < 2) return { terminos: undefined, plazoAnios: null };
+
+  const addedPrecio = Math.round(item.price * rate * 100) / 100;
+  const matched = terminos.find((t) => t.precio === addedPrecio);
+  return { terminos, plazoAnios: matched?.anios ?? null };
 }
 
 // ─── Editable field ───────────────────────────────────────────────────────────
@@ -103,7 +159,7 @@ function PriceListPanel({
   items: PriceItem[];
   loading: boolean;
   error: string | null;
-  onAdd: (item: { sku: string; desc: string; price: number }) => void;
+  onAdd: (item: PriceItem) => void;
 }) {
   const [search, setSearch] = useState("");
   const [activeSheet, setActiveSheet] = useState("Todos");
@@ -114,14 +170,10 @@ function PriceListPanel({
   }, [items]);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
     return items
       .filter((p) => {
         const matchSheet = activeSheet === "Todos" || p.sheet === activeSheet;
-        const matchSearch =
-          !q ||
-          p.sku.toLowerCase().includes(q) ||
-          p.desc.toLowerCase().includes(q);
+        const matchSearch = !search.trim() || matchesProductQuery({ unitName: p.unitName, sku: p.sku, descripcion: p.desc }, search);
         return matchSheet && matchSearch;
       })
       .slice(0, 80);
@@ -206,7 +258,7 @@ function PriceListPanel({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar SKU o descripción…"
+            placeholder="Buscar por nombre, ej. FortiGate 60F…"
             style={{
               width: "100%",
               boxSizing: "border-box",
@@ -385,12 +437,18 @@ function PriceListPanel({
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
+              {item.unitName && (
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>
+                  {item.unitName}
+                </div>
+              )}
               <div
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "#fff",
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  color: "rgba(255,255,255,0.45)",
                   lineHeight: 1.3,
+                  marginTop: item.unitName ? 1 : 0,
                   marginBottom: 2,
                 }}
               >
@@ -423,12 +481,15 @@ function PriceListPanel({
                   maximumFractionDigits: 2,
                 })}{" "}
                 USD
+                {/* Term-only SKU (no flat price) -- price shown is the
+                    cheapest available contract term, so say which. */}
+                {item.precio1yr != null && item.price === item.precio1yr && (
+                  <span style={{ color: "rgba(255,255,255,0.35)", fontWeight: 400 }}> · 1 año</span>
+                )}
               </div>
             </div>
             <button
-              onClick={() =>
-                onAdd({ sku: item.sku, desc: item.desc, price: item.price })
-              }
+              onClick={() => onAdd(item)}
               style={{
                 width: 26,
                 height: 26,
@@ -486,12 +547,12 @@ function PriceListPanel({
 // ─── Success modal ────────────────────────────────────────────────────────────
 function SuccessModal({
   numeroCotizacion,
-  pdfHref,
+  onExportPdf,
   onClose,
   onGoToList,
 }: {
   numeroCotizacion: string;
-  pdfHref?: string;
+  onExportPdf?: () => void;
   onClose: () => void;
   onGoToList: () => void;
 }) {
@@ -506,15 +567,13 @@ function SuccessModal({
         <h3 className="text-lg font-bold text-gray-900 mb-1">Cotización guardada</h3>
         <p className="text-sm text-gray-500 mb-6">{numeroCotizacion} se guardó correctamente.</p>
         <div className="flex flex-col gap-2">
-          {pdfHref && (
-            <a
-              href={pdfHref}
-              target="_blank"
-              rel="noreferrer"
+          {onExportPdf && (
+            <button
+              onClick={onExportPdf}
               className="w-full py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors"
             >
               Exportar PDF ahora
-            </a>
+            </button>
           )}
           <button
             onClick={onClose}
@@ -679,7 +738,6 @@ export default function CotizacionForm({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedNumero, setSavedNumero] = useState<string | null>(null);
-  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [estado, setEstado] = useState<EstadoCotizacion>(initialEstado);
@@ -802,9 +860,10 @@ export default function CotizacionForm({
   // displayed rate (which may be a manually negotiated override, not just
   // the live one) so an item added while moneda=MXN lands in pesos, not USD.
   const handleAddFromList = useCallback(
-    (item: { sku: string; desc: string; price: number }) => {
+    (item: PriceItem) => {
       const rate = monedaCode === "USD" ? 1 : parseMXN(tipoCambio) || 1;
       const precio = (item.price * rate).toFixed(2);
+      const { terminos, plazoAnios } = buildTerminos(item, rate);
       setItems((prev) => {
         const last = prev[prev.length - 1];
         const isEmpty =
@@ -819,6 +878,8 @@ export default function CotizacionForm({
                   precioUnitario: precio,
                   cant: "1",
                   unidad: "PZA",
+                  terminos,
+                  plazoAnios,
                 }
               : it
           );
@@ -833,12 +894,26 @@ export default function CotizacionForm({
             descripcion: item.desc,
             precioUnitario: precio,
             descuento: "",
+            terminos,
+            plazoAnios,
           },
         ];
       });
     },
     [monedaCode, tipoCambio]
   );
+
+  // Switches an existing line's contract term -- updates precioUnitario (and
+  // therefore Extendido/Subtotal/Total, via computeTotals) to that term's price.
+  const updateItemTerm = useCallback((id: number, anios: LineItemTerm["anios"]) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        const t = it.terminos?.find((x) => x.anios === anios);
+        if (!t) return it;
+        return { ...it, precioUnitario: t.precio.toFixed(2), plazoAnios: anios };
+      })
+    );
+  }, []);
 
   // ── Cálculos ──
   const { rows, subtotalGlobal, ivaPct, iva, total } = computeTotals(items, ivaActivo, ivaPercent);
@@ -878,7 +953,6 @@ export default function CotizacionForm({
         return;
       }
       setSavedNumero(body.numero_cotizacion ?? numeroCotizacion ?? "");
-      setSavedQuoteId(body.id ?? quoteId ?? null);
       if (mode === "nueva" && body.id) {
         router.replace(`/cotizaciones/${body.id}`);
       } else {
@@ -959,7 +1033,7 @@ export default function CotizacionForm({
       {savedNumero && (
         <SuccessModal
           numeroCotizacion={savedNumero}
-          pdfHref={savedQuoteId ? `/api/quotes/${savedQuoteId}/pdf` : undefined}
+          onExportPdf={() => handlePrint?.()}
           onClose={() => setSavedNumero(null)}
           onGoToList={() => router.push("/cotizaciones")}
         />
@@ -1018,14 +1092,7 @@ export default function CotizacionForm({
             </button>
           )}
           <button
-            onClick={() => {
-              // A saved quote gets the real vector PDF (server-rendered,
-              // selectable text, always matches what's persisted); an
-              // unsaved "nueva" quote has no id yet to fetch, so it falls
-              // back to the browser print dialog.
-              if (quoteId) window.open(`/api/quotes/${quoteId}/pdf`, "_blank");
-              else handlePrint?.();
-            }}
+            onClick={() => handlePrint?.()}
             className="bg-[#D95A00] hover:bg-[#b84d00] text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1439,6 +1506,35 @@ export default function CotizacionForm({
                               )
                             }
                           />
+                          {/* Plazo (contract term) selector -- only for a
+                              line added from a price-list SKU with 2+ term
+                              prices (e.g. FortiCare 1/3/5yr). Switching it
+                              swaps precioUnitario to that term's price, and
+                              Extendido/Subtotal/Total recompute for free
+                              from that (see computeTotals). */}
+                          {item.terminos && item.terminos.length > 1 && (
+                            <select
+                              value={item.plazoAnios ?? ""}
+                              onChange={(e) => updateItemTerm(item.id, Number(e.target.value) as LineItemTerm["anios"])}
+                              className="w-full bg-transparent border-0 border-t border-dashed border-gray-200 focus:outline-none focus:bg-orange-50 rounded-none px-1 text-[9px] text-gray-500 print:hidden"
+                              title="Plazo del contrato"
+                            >
+                              {!item.plazoAnios && <option value="">Plazo…</option>}
+                              {item.terminos.map((t) => (
+                                <option key={t.anios} value={t.anios}>
+                                  {t.anios} {t.anios === 1 ? "año" : "años"}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {/* The <select> itself is print:hidden -- this is
+                              what shows the chosen term on the printed/PDF
+                              preview instead of losing it silently. */}
+                          {item.plazoAnios && (
+                            <div className="hidden print:block text-[9px] text-gray-500 text-right px-1">
+                              {item.plazoAnios} {item.plazoAnios === 1 ? "año" : "años"}
+                            </div>
+                          )}
                         </td>
                         <td className="border border-gray-300 px-1 py-1 text-right text-[11px] font-medium text-gray-900 tabular-nums break-all">
                           {parseMXN(item.cant) > 0 &&

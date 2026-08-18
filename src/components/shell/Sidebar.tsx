@@ -7,6 +7,7 @@ import {
   IconFileInvoice,
   IconPhoneCall,
   IconTag,
+  IconSearch,
   IconArrowsRightLeft,
   IconHistory,
   IconLogout,
@@ -28,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const NAV_ITEMS_PRECIOS: NavItem[] = [
   { href: "/precios", label: "Lista de precios", icon: IconTag, matchSegment: "precios" },
+  { href: "/precios/catalogo", label: "Catálogo", icon: IconSearch, matchSegment: "catalogo" },
   { href: "/precios/comparar", label: "Comparar listas", icon: IconArrowsRightLeft, matchSegment: "comparar" },
 ];
 

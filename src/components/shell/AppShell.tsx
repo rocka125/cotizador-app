@@ -12,6 +12,7 @@ const PAGE_TITLES: Record<string, string> = {
   cotizaciones: "Cotizaciones",
   seguimiento: "Seguimiento",
   precios: "Lista de precios",
+  "precios/catalogo": "Catálogo",
   "precios/comparar": "Comparar listas",
   auditoria: "Auditoría",
 };

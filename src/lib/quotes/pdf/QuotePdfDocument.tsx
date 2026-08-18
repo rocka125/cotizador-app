@@ -16,7 +16,12 @@ import { MONEDA_LABELS } from "../types";
 const ORANGE = "#D95A00";
 
 const styles = StyleSheet.create({
-  page: { padding: 32, fontSize: 9, fontFamily: "Helvetica", color: "#111827" },
+  // paddingTop is larger than the other sides on purpose -- react-pdf
+  // reapplies Page's padding to every physical page it auto-paginates into,
+  // so this is what gives a continuation page (when the item table overflows
+  // past page 1) breathing room above its first row instead of starting
+  // right at the sheet edge.
+  page: { paddingTop: 64, paddingBottom: 32, paddingHorizontal: 32, fontSize: 9, fontFamily: "Helvetica", color: "#111827" },
   headerRow: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 2, borderBottomColor: ORANGE, paddingBottom: 12, marginBottom: 16 },
   logo: { width: 160, height: 68, objectFit: "contain" },
   cotLabel: { fontSize: 8, fontWeight: 700, color: ORANGE, textTransform: "uppercase", letterSpacing: 1, marginTop: 6 },
@@ -152,7 +157,11 @@ export function QuotePdfDocument({ quote, logoSrc }: { quote: QuoteRow; logoSrc?
               <Text style={[styles.th, { width: COL_WIDTHS.subtotal, borderRightWidth: 0 }]}>Subtotal</Text>
             </View>
             {rows.map((r, i) => (
-              <View key={i} style={styles.tRow}>
+              // wrap={false}: keeps a row intact across a page break -- without it
+              // react-pdf will slice a row mid-cell (e.g. cantidad/SKU left behind
+              // on one page, the rest starting fresh on the next) whenever it
+              // straddles the boundary, instead of just moving the whole row down.
+              <View key={i} style={styles.tRow} wrap={false}>
                 <Text style={[styles.td, { width: COL_WIDTHS.cant, textAlign: "center" }]}>{r.cant}</Text>
                 <Text style={[styles.td, { width: COL_WIDTHS.sku }]}>{breakableSku(r.sku)}</Text>
                 <Text style={[styles.td, { width: COL_WIDTHS.unidad, textAlign: "center" }]}>{r.unidad}</Text>

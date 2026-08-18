@@ -45,7 +45,13 @@ export async function POST(request: Request) {
       categoria: p.categoria,
       sku: p.sku,
       descripcion: p.descripcion,
+      unit_name: p.unitName || null,
       precio: p.precio,
+      precio_1yr: p.precio1yr,
+      precio_2yr: p.precio2yr,
+      precio_3yr: p.precio3yr,
+      precio_4yr: p.precio4yr,
+      precio_5yr: p.precio5yr,
       activo: true,
     }));
     const { error: batchError } = await supabase.from("price_list_items").insert(batch);
