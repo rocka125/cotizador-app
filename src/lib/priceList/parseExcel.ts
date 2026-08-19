@@ -29,7 +29,7 @@ export interface ParsedProduct {
   precio5yr: number | null;
 }
 
-export interface OmittedSheet {
+interface OmittedSheet {
   nombre: string;
   razon: string;
 }

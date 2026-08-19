@@ -2,7 +2,7 @@
 // (SHEET_CATEGORY_MAP + SHEET_IGNORE_LIST) — this encodes Fortinet's exact
 // AMER price-list sheet-naming convention, business-critical to get right.
 
-export const SHEET_CATEGORY_MAP: Record<string, string> = {
+const SHEET_CATEGORY_MAP: Record<string, string> = {
   FortiGate: "FortiGate",
   FortiWiFi: "FortiWiFi",
   "FortiGate Chassis Platforms": "FortiGate Chassis Platforms",
@@ -41,7 +41,7 @@ export const SHEET_CATEGORY_MAP: Record<string, string> = {
 };
 
 // Sheets known NOT to be product categories — not reported as "omitted".
-export const SHEET_IGNORE_LIST = ["Cover Sheet", "Index", "General Info", "Ordering Guides", "DataSet", "Changes"];
+const SHEET_IGNORE_LIST = ["Cover Sheet", "Index", "General Info", "Ordering Guides", "DataSet", "Changes"];
 
 // Normalizes a sheet name (extra spaces, NBSP, case) so a minor tab-name
 // change (double space, uppercase, missing comma) doesn't silently drop the

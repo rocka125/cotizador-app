@@ -12,7 +12,7 @@ export const parseMoneyInput = (v: string) => parseFloat(v.replace(/[^0-9.]/g, "
 export const formatMXN = (n: number) =>
   n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 
-export interface LineItemRow extends LineItem {
+interface LineItemRow extends LineItem {
   extendido: number;
   descuentoMonto: number;
   subtotal: number;

@@ -6,7 +6,7 @@ export interface ActivePriceItem {
   categoria: string;
   sku: string;
   descripcion: string;
-  precio: number;
+  precio: number | null;
 }
 
 export function CategoryBrowser({ items }: { items: ActivePriceItem[] }) {
@@ -79,7 +79,7 @@ export function CategoryBrowser({ items }: { items: ActivePriceItem[] }) {
                 <td className="px-3 py-2 font-mono text-white/80">{it.sku}</td>
                 <td className="px-3 py-2 text-white/60 max-w-xs truncate">{it.descripcion}</td>
                 <td className="px-3 py-2 text-right text-white font-medium">
-                  ${it.precio.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                  {it.precio != null ? `$${it.precio.toLocaleString("es-MX", { minimumFractionDigits: 2 })}` : <span className="text-white/20">—</span>}
                 </td>
               </tr>
             ))}

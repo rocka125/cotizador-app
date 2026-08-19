@@ -66,7 +66,7 @@ function playNotes(notes: Note[]) {
   }
 }
 
-export type NotifTipo =
+type NotifTipo =
   | "creacion"
   | "edicion"
   | "eliminacion"

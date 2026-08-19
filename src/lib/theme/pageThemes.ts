@@ -12,7 +12,7 @@ export interface ThemeTokens {
   font: "fraunces" | "inter" | "archivo";
 }
 
-export const PAGE_THEMES: Record<string, ThemeTokens> = {
+const PAGE_THEMES: Record<string, ThemeTokens> = {
   dashboard: { bg: "#0B0708", accent: "#FF8A3D", accent2: "#E54818", font: "fraunces" },
   cotizaciones: { bg: "#0d0d0f", accent: "#F57B02", accent2: "#E2471B", font: "fraunces" },
   precios: { bg: "#0a0a0c", accent: "#ff8c1a", accent2: "#e5432a", font: "inter" },
@@ -21,7 +21,7 @@ export const PAGE_THEMES: Record<string, ThemeTokens> = {
   auditoria: { bg: "#080808", accent: "#F67C01", accent2: "#E54818", font: "archivo" },
 };
 
-export const DEFAULT_THEME: ThemeTokens = PAGE_THEMES.dashboard;
+const DEFAULT_THEME: ThemeTokens = PAGE_THEMES.dashboard;
 
 export function themeForPathname(pathname: string): ThemeTokens {
   const segments = pathname.split("/").filter(Boolean);

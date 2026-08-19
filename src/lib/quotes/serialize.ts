@@ -25,7 +25,7 @@ export interface DbLineItem {
   plazo_anios?: LineItemTerm["anios"] | null;
 }
 
-export function itemsToDb(items: LineItem[], ivaActivo: boolean, ivaPercent: string): DbLineItem[] {
+function itemsToDb(items: LineItem[], ivaActivo: boolean, ivaPercent: string): DbLineItem[] {
   const { rows } = computeTotals(items, ivaActivo, ivaPercent);
   return rows
     .filter((r) => r.sku.trim() || r.descripcion.trim())

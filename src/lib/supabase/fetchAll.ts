@@ -19,7 +19,7 @@ export async function fetchAllRows<T>(
   let from = 0;
 
   for (;;) {
-    let query: any = supabase.from(table).select(columns);
+    let query = supabase.from(table).select(columns);
     if (filterEq) {
       for (const [key, value] of Object.entries(filterEq)) query = query.eq(key, value);
     }
